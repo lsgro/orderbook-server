@@ -33,7 +33,6 @@ pub struct Level {
 #[derive(PartialEq, Debug)]
 pub struct BookUpdate {
     pub exchange: &'static str,
-    pub timestamp: u64,
     pub bids: Vec<Level>,
     pub asks: Vec<Level>,
 }

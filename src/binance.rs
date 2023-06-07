@@ -1,15 +1,14 @@
-use log::{info, error};
-use futures::prelude::*;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use log::debug;
 use rust_decimal::prelude::*;
-use tokio_tungstenite::{connect_async, WebSocketStream, MaybeTlsStream, tungstenite::protocol::Message};
 use serde::{Deserialize, Serialize};
 
 use crate::core::*;
+use crate::book_ws::{BookUpdateReader, BookUpdateProvider};
 
 
 const BINANCE_CODE: &'static str = "binance";
+const BINANCE_WS_URL: &'static str = "wss://stream.binance.com:443/ws";
+
 
 #[derive(Serialize, Deserialize, Debug)]
 struct BinancePair((String, String));
@@ -37,86 +36,34 @@ impl From<BinanceBookUpdate> for BookUpdate {
     fn from(value: BinanceBookUpdate) -> Self {
         BookUpdate {
             exchange: BINANCE_CODE,
-            timestamp: value.last_update_id,
             bids: value.bids.into_iter().map(|pair| pair.into()).collect(),
             asks: value.asks.into_iter().map(|pair| pair.into()).collect(),
         }
     }
 }
 
-pub struct BinanceProvider {
-    product: CurrencyPair,
-}
+struct BinanceBookUpdateReader;
 
-impl BinanceProvider {
-    pub fn new(product: CurrencyPair) -> BinanceProvider {
-        BinanceProvider{ product }
-    }
-
-    pub async fn connect(&mut self) -> Result<ConnectedBinanceProvider, ProviderError> {
-        let product_code = self.product.to_string().to_lowercase();
-        let channel_code = format!("{}@depth{}@1000ms", product_code, NUM_LEVELS);
-        let ws_url = format!("wss://stream.binance.com:443/ws/{}", channel_code);
-        info!("Connecting to {}.", ws_url);
-        match connect_async(ws_url).await {
-            Ok((mut ws, response)) => {
-                info!("Connection {:?}", response);
-                let subs_str = format!(r#"{{"method":"SUBSCRIBE","params":["{}"],"id":10}}"#, channel_code);
-                info!("Subscribe to channel {}.", &subs_str);
-                match ws.send(Message::Text(subs_str)).await {
-                    Ok(_) => {
-                        info!("Subscription to channel succeeded.");
-                        Ok(ConnectedBinanceProvider{ ws_stream: Box::pin(ws) })
-                    },
-                    _ => Err(ProviderError::Io)
-                }
-            },
-            _ => {
-                Err(ProviderError::Io)
-            }
-        }
-    }
-}
-
-pub struct ConnectedBinanceProvider {
-    ws_stream: Pin<Box<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>>,
-}
-
-impl ConnectedBinanceProvider {
-    pub async fn disconnect(&mut self) -> Result<(), ProviderError>{
-        info!("Disconnect socket");
-        self.ws_stream.close().await.map_err(|_| ProviderError::Io)
-    }
-
-    fn parse_book_update(msg_txt: &str) -> Option<BookUpdate> {
-        let parse_res: serde_json::Result<BinanceBookUpdate> = serde_json::from_str(msg_txt);
+impl BookUpdateReader for BinanceBookUpdateReader {
+    fn read_book_update(&self, value: String) -> Option<BookUpdate> {
+        let parse_res: serde_json::Result<BinanceBookUpdate> = serde_json::from_str(&value);
         match parse_res {
             Ok(book_update @ BinanceBookUpdate{..}) => Some(book_update.into()),
             _ => {
-                error!("Parse failed {:?}", msg_txt);
+                debug!("Parse failed {:?}", &value);
                 None
             }
         }
     }
 }
 
-impl Stream for ConnectedBinanceProvider {
-    type Item = BookUpdate;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.ws_stream.as_mut().poll_next(cx) {
-            Poll::Ready(Some(Ok(Message::Text(ref msg_txt)))) => {
-                let maybe_book_update = ConnectedBinanceProvider::parse_book_update(msg_txt);
-                Poll::Ready(maybe_book_update)
-            }
-            Poll::Ready(Some(Ok(Message::Ping(data)))) => {
-                info!("Ping received. Respond.");
-                let _ = self.ws_stream.send(Message::Pong(data));
-                Poll::Ready(None)
-            }
-            _ => Poll::Pending
-        }
-    }
+pub fn make_binance_provider(product: &CurrencyPair) -> BookUpdateProvider {
+    let product_code = product.to_string().to_lowercase();
+    let channel_code = format!("{}@depth{}@100ms", product_code, NUM_LEVELS);
+    let ws_url = format!("{}/{}", BINANCE_WS_URL, channel_code);
+    let subscribe_msg = format!(r#"{{"method":"SUBSCRIBE","params":["{}"],"id":10}}"#, channel_code);
+    let book_update_reader = Box::new(BinanceBookUpdateReader);
+    BookUpdateProvider::new(ws_url, subscribe_msg, book_update_reader)
 }
 
 
@@ -139,7 +86,6 @@ mod tests {
         };
         let exp_book_update = BookUpdate {
             exchange: BINANCE_CODE,
-            timestamp: 333,
             bids: vec![
                 Level {
                     exchange: BINANCE_CODE,

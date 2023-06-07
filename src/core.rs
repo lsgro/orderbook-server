@@ -30,6 +30,16 @@ pub struct Level {
     pub amount: Decimal,
 }
 
+impl Level {
+    pub fn from_strs(exchange: &'static str, price_str: &str, amount_str: &str) -> Level {
+        Level {
+            exchange,
+            price: Decimal::from_str(price_str).unwrap(),
+            amount: Decimal::from_str(amount_str).unwrap(),
+        }
+    }
+}
+
 #[derive(PartialEq, Debug)]
 pub struct BookUpdate {
     pub exchange: &'static str,

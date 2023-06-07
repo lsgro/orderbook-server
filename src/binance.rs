@@ -87,28 +87,12 @@ mod tests {
         let exp_book_update = BookUpdate {
             exchange: BINANCE_CODE,
             bids: vec![
-                Level {
-                    exchange: BINANCE_CODE,
-                    price: Decimal::from_str("0.123").unwrap(),
-                    amount: Decimal::from_str("123.1").unwrap(),
-                },
-                Level {
-                    exchange: BINANCE_CODE,
-                    price: Decimal::from_str("0.321").unwrap(),
-                    amount: Decimal::from_str("321.3").unwrap(),
-                },
+                Level::from_strs(BINANCE_CODE, "0.123", "123.1"),
+                Level::from_strs(BINANCE_CODE, "0.321", "321.3"),
             ],
             asks: vec![
-                Level {
-                    exchange: BINANCE_CODE,
-                    price: Decimal::from_str("3.213").unwrap(),
-                    amount: Decimal::from_str("321.3").unwrap(),
-                },
-                Level {
-                    exchange: BINANCE_CODE,
-                    price: Decimal::from_str("1.231").unwrap(),
-                    amount: Decimal::from_str("122.1").unwrap(),
-                },
+                Level::from_strs(BINANCE_CODE, "3.213", "321.3"),
+                Level::from_strs(BINANCE_CODE, "1.231", "122.1"),
             ],
         };
         let book_update: BookUpdate = b_book_update.into();

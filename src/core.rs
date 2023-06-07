@@ -23,14 +23,14 @@ impl Display for CurrencyPair {
     }
 }
 
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub struct Level {
     pub exchange: &'static str,
     pub price: Decimal,
     pub amount: Decimal,
 }
 
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub struct BookUpdate {
     pub exchange: &'static str,
     pub timestamp: u64,

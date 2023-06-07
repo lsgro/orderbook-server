@@ -14,17 +14,13 @@ fn main() {
     let mut binance_provider = BinanceProvider::new(CurrencyPair { main: "ETH", counter: "BTC" });
     rt.block_on(async {
         match binance_provider.connect().await {
-            Ok(BookStream(mut stream)) => {
-                println!("A book stream!");
+            Ok(_) => {
                 for _ in 0..10 {
-                    match stream.next().await {
-                        Some(book_update) => println!("{:?}", book_update),
-                        None => println!("No message received"),
-                    }
+                    binance_provider.next().await.map(|book_update| println!("{:?}", book_update));
                 }
+                let _ = binance_provider.disconnect().await;
             },
             Err(error) => println!("Error {:?}", error),
         }
-        println!("Hello, world!")
     });
 }

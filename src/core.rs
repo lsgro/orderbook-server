@@ -1,8 +1,5 @@
 use std::fmt::{Display, Formatter};
-use std::process::Output;
-use std::pin::Pin;
 use rust_decimal::prelude::*;
-use futures::prelude::*;
 
 
 pub const NUM_LEVELS: usize = 10;
@@ -56,4 +53,3 @@ pub enum ProviderError {
     Parse,
 }
 
-pub struct BookStream(pub Pin<Box<dyn Stream<Item = BookUpdate>>>);

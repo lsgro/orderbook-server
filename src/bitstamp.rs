@@ -31,7 +31,7 @@ struct BitstampBookUpdate {
 impl From<BitstampPair> for ExchangeLevel {
     fn from(value: BitstampPair) -> Self {
         let BitstampPair((price_str, amount_str)) = value;
-        ExchangeLevel {
+        Self {
             exchange: BITSTAMP_CODE,
             price: Decimal::from_str(&price_str).unwrap(),
             amount: Decimal::from_str(&amount_str).unwrap(),
@@ -41,7 +41,7 @@ impl From<BitstampPair> for ExchangeLevel {
 
 impl From<BitstampBookUpdate> for BookUpdate {
     fn from(value: BitstampBookUpdate) -> Self {
-        BookUpdate {
+        Self {
             exchange: BITSTAMP_CODE,
             bids: value.data.bids.into_iter().take(NUM_LEVELS).map(|pair| pair.into()).collect(),
             asks: value.data.asks.into_iter().take(NUM_LEVELS).map(|pair| pair.into()).collect(),

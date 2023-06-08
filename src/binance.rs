@@ -24,7 +24,7 @@ struct BinanceBookUpdate {
 impl From<BinancePair> for ExchangeLevel {
     fn from(value: BinancePair) -> Self {
         let BinancePair((price_str, amount_str)) = value;
-        ExchangeLevel {
+        Self {
             exchange: BINANCE_CODE,
             price: Decimal::from_str(&price_str).unwrap(),
             amount: Decimal::from_str(&amount_str).unwrap(),
@@ -34,7 +34,7 @@ impl From<BinancePair> for ExchangeLevel {
 
 impl From<BinanceBookUpdate> for BookUpdate {
     fn from(value: BinanceBookUpdate) -> Self {
-        BookUpdate {
+        Self {
             exchange: BINANCE_CODE,
             bids: value.bids.into_iter().map(|pair| pair.into()).collect(),
             asks: value.asks.into_iter().map(|pair| pair.into()).collect(),

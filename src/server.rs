@@ -20,8 +20,8 @@ pub struct ProtobufOrderbookServer {
 }
 
 impl ProtobufOrderbookServer {
-    pub fn new(product: CurrencyPair) -> ProtobufOrderbookServer {
-        ProtobufOrderbookServer { product }
+    pub fn new(product: CurrencyPair) -> Self {
+        Self { product }
     }
 
     pub async fn serve(self, port: u16) -> Result<(), Box<dyn std::error::Error>> {

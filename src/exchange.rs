@@ -22,7 +22,7 @@ impl BookUpdateProvider {
         ws_url: String,
         subscribe_msg: String,
         book_update_reader: Box<dyn BookUpdateReader + Send>
-    ) -> BookUpdateProvider {
+    ) -> Self {
         BookUpdateProvider{ ws_url, subscribe_msg, book_update_reader }
     }
 

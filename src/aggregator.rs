@@ -12,18 +12,18 @@ struct AggregateLevel {
 }
 
 impl AggregateLevel {
-    fn from_level(level: ExchangeLevel) -> AggregateLevel {
-        AggregateLevel {
+    fn from_level(level: ExchangeLevel) -> Self {
+        Self {
             price: level.price,
             exchange_levels: HashMap::from([(level.exchange, level)]),
         }
     }
 
     #[cfg(test)]
-    fn from_levels(levels: Vec<ExchangeLevel>) -> AggregateLevel {
+    fn from_levels(levels: Vec<ExchangeLevel>) -> Self {
         assert!(!levels.is_empty());
         let mut levels_iter = levels.into_iter();
-        let mut cons_level = AggregateLevel::from_level(levels_iter.next().unwrap());
+        let mut cons_level = Self::from_level(levels_iter.next().unwrap());
         for level in levels_iter {
             cons_level.update(level);
         }
@@ -59,8 +59,8 @@ pub struct AggregateBook {
 }
 
 impl AggregateBook {
-    pub fn new(max_levels: usize) -> AggregateBook {
-        AggregateBook {
+    pub fn new(max_levels: usize) -> Self {
+        Self {
             max_levels,
             bids: vec![],
             asks: vec![],
@@ -68,11 +68,11 @@ impl AggregateBook {
     }
 
     pub fn best_bids(&self) -> Vec<&ExchangeLevel> {
-        AggregateBook::best_levels(&self.bids, self.max_levels)
+        Self::best_levels(&self.bids, self.max_levels)
     }
 
     pub fn best_asks(&self) -> Vec<&ExchangeLevel> {
-        AggregateBook::best_levels(&self.asks, self.max_levels)
+        Self::best_levels(&self.asks, self.max_levels)
     }
 
     fn best_levels(side: &Vec<AggregateLevel>, max_levels: usize) -> Vec<&ExchangeLevel> {
@@ -93,13 +93,13 @@ impl AggregateBook {
     }
 
     pub fn update(&mut self, book_update: BookUpdate) {
-        AggregateBook::replace_levels_by_exchange(
+        Self::replace_levels_by_exchange(
             &mut self.bids,
             book_update.bids,
             self.max_levels,
             book_update.exchange,
             false);
-        AggregateBook::replace_levels_by_exchange(
+        Self::replace_levels_by_exchange(
             &mut self.asks,
             book_update.asks,
             self.max_levels,
@@ -113,8 +113,8 @@ impl AggregateBook {
             max_levels: usize,
             exchange: &'static str,
             low_price_first: bool) {
-        AggregateBook::reset_levels_by_exchange(side, exchange);
-        AggregateBook::update_side(side, side_update, max_levels, low_price_first);
+        Self::reset_levels_by_exchange(side, exchange);
+        Self::update_side(side, side_update, max_levels, low_price_first);
     }
 
     fn reset_levels_by_exchange(side: &mut Vec<AggregateLevel>, exchange: &'static str) {

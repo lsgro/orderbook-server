@@ -3,7 +3,7 @@ use rust_decimal::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::core::*;
-use crate::book_ws::{BookUpdateReader, BookUpdateProvider};
+use crate::exchange_client::{BookUpdateReader, BookUpdateProvider};
 
 
 const BINANCE_CODE: &'static str = "binance";

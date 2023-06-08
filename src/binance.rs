@@ -21,10 +21,10 @@ struct BinanceBookUpdate {
     asks: Vec<BinancePair>,
 }
 
-impl From<BinancePair> for Level {
+impl From<BinancePair> for ExchangeLevel {
     fn from(value: BinancePair) -> Self {
         let BinancePair((price_str, amount_str)) = value;
-        Level {
+        ExchangeLevel {
             exchange: BINANCE_CODE,
             price: Decimal::from_str(&price_str).unwrap(),
             amount: Decimal::from_str(&amount_str).unwrap(),
@@ -87,12 +87,12 @@ mod tests {
         let exp_book_update = BookUpdate {
             exchange: BINANCE_CODE,
             bids: vec![
-                Level::from_strs(BINANCE_CODE, "0.123", "123.1"),
-                Level::from_strs(BINANCE_CODE, "0.321", "321.3"),
+                ExchangeLevel::from_strs(BINANCE_CODE, "0.123", "123.1"),
+                ExchangeLevel::from_strs(BINANCE_CODE, "0.321", "321.3"),
             ],
             asks: vec![
-                Level::from_strs(BINANCE_CODE, "3.213", "321.3"),
-                Level::from_strs(BINANCE_CODE, "1.231", "122.1"),
+                ExchangeLevel::from_strs(BINANCE_CODE, "3.213", "321.3"),
+                ExchangeLevel::from_strs(BINANCE_CODE, "1.231", "122.1"),
             ],
         };
         let book_update: BookUpdate = b_book_update.into();

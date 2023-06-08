@@ -24,15 +24,15 @@ impl Display for CurrencyPair {
 }
 
 #[derive(PartialEq, Debug)]
-pub struct Level {
+pub struct ExchangeLevel {
     pub exchange: &'static str,
     pub price: Decimal,
     pub amount: Decimal,
 }
 
-impl Level {
-    pub fn from_strs(exchange: &'static str, price_str: &str, amount_str: &str) -> Level {
-        Level {
+impl ExchangeLevel {
+    pub fn from_strs(exchange: &'static str, price_str: &str, amount_str: &str) -> ExchangeLevel {
+        ExchangeLevel {
             exchange,
             price: Decimal::from_str(price_str).unwrap(),
             amount: Decimal::from_str(amount_str).unwrap(),
@@ -43,15 +43,15 @@ impl Level {
 #[derive(PartialEq, Debug)]
 pub struct BookUpdate {
     pub exchange: &'static str,
-    pub bids: Vec<Level>,
-    pub asks: Vec<Level>,
+    pub bids: Vec<ExchangeLevel>,
+    pub asks: Vec<ExchangeLevel>,
 }
 
 #[derive(Debug)]
 pub struct Summary {
     pub spread: Decimal,
-    pub bids: [Level; NUM_LEVELS],
-    pub asks: [Level; NUM_LEVELS],
+    pub bids: [ExchangeLevel; NUM_LEVELS],
+    pub asks: [ExchangeLevel; NUM_LEVELS],
 }
 
 #[derive(Debug)]

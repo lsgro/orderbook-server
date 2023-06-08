@@ -19,6 +19,7 @@ impl AggregateLevel {
         }
     }
 
+    #[cfg(test)]
     fn from_levels(levels: Vec<ExchangeLevel>) -> AggregateLevel {
         assert!(!levels.is_empty());
         let mut levels_iter = levels.into_iter();
@@ -34,6 +35,7 @@ impl AggregateLevel {
         self.exchange_levels.insert(level.exchange, level);
     }
 
+    #[cfg(test)]
     fn total_amount(&self) -> Decimal {
         let mut result: Decimal = Decimal::zero();
         for level in self.exchange_levels.values() {
@@ -50,7 +52,7 @@ impl AggregateLevel {
 }
 
 #[derive(PartialEq, Debug)]
-struct AggregateBook {
+pub struct AggregateBook {
     max_levels: usize,
     bids: Vec<AggregateLevel>,
     asks: Vec<AggregateLevel>,
@@ -90,7 +92,7 @@ impl AggregateBook {
         result
     }
 
-    fn update(&mut self, book_update: BookUpdate) {
+    pub fn update(&mut self, book_update: BookUpdate) {
         AggregateBook::replace_levels_by_exchange(
             &mut self.bids,
             book_update.bids,

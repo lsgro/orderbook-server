@@ -14,14 +14,14 @@ pub trait BookUpdateReader {
 pub struct BookUpdateProvider {
     ws_url: String,
     subscribe_msg: String,
-    book_update_reader: Box<dyn BookUpdateReader>,
+    book_update_reader: Box<dyn BookUpdateReader + Send>,
 }
 
 impl BookUpdateProvider {
     pub fn new(
         ws_url: String,
         subscribe_msg: String,
-        book_update_reader: Box<dyn BookUpdateReader>
+        book_update_reader: Box<dyn BookUpdateReader + Send>
     ) -> BookUpdateProvider {
         BookUpdateProvider{ ws_url, subscribe_msg, book_update_reader }
     }
@@ -53,7 +53,7 @@ impl BookUpdateProvider {
 pub struct ConnectedBookUpdateProvider {
     ws_url: String,
     ws_stream: Pin<Box<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>>,
-    book_update_reader: Box<dyn BookUpdateReader>,
+    book_update_reader: Box<dyn BookUpdateReader + Send>,
 }
 
 impl ConnectedBookUpdateProvider {

@@ -11,7 +11,7 @@ pub enum Side {
     Sell,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 pub struct CurrencyPair {
     pub main: &'static str,
     pub counter: &'static str,
@@ -45,13 +45,6 @@ pub struct BookUpdate {
     pub exchange: &'static str,
     pub bids: Vec<ExchangeLevel>,
     pub asks: Vec<ExchangeLevel>,
-}
-
-#[derive(Debug)]
-pub struct Summary {
-    pub spread: Decimal,
-    pub bids: [ExchangeLevel; NUM_LEVELS],
-    pub asks: [ExchangeLevel; NUM_LEVELS],
 }
 
 #[derive(Debug)]

@@ -40,42 +40,50 @@ impl ConsolidateLevel {
         }
         result
     }
+
+    fn levels_by_amount(&self) -> Vec<&ExchangeLevel> {
+        let mut levels: Vec<&ExchangeLevel> = self.exchange_levels.values().collect();
+        levels.sort_by(|a, b| b.amount.cmp(&a.amount));
+        levels
+    }
 }
 
 #[derive(PartialEq, Debug)]
 struct Consolidate {
+    max_levels: usize,
     bids: Vec<ConsolidateLevel>,
     asks: Vec<ConsolidateLevel>,
 }
 
 impl Consolidate {
-    fn new() -> Consolidate {
+    pub fn new(max_levels: usize) -> Consolidate {
         Consolidate {
+            max_levels,
             bids: vec![],
             asks: vec![],
         }
     }
 
     fn update(&mut self, book_update: BookUpdate) {
-        Consolidate::update_side(&mut self.bids, book_update.bids, false);
-        Consolidate::update_side(&mut self.asks, book_update.asks, true);
+        Consolidate::update_side(&mut self.bids, book_update.bids, self.max_levels, false);
+        Consolidate::update_side(&mut self.asks, book_update.asks, self.max_levels,true);
     }
 
-    fn update_side(side: &mut Vec<ConsolidateLevel>, side_update: Vec<ExchangeLevel>, low_price_first: bool) {
+    fn update_side(side: &mut Vec<ConsolidateLevel>, side_update: Vec<ExchangeLevel>, max_levels: usize, low_price_first: bool) {
         if side.is_empty() {
             side.extend(side_update.into_iter().map(ConsolidateLevel::from_level));
         } else {
             let mut current_index: usize = 0;
             let mut last_price: Decimal = side[side.len() - 1].price;
             for level_update in side_update {
-                while current_index < NUM_LEVELS {
-                    if side.len() >= NUM_LEVELS {
+                while current_index < max_levels {
+                    if side.len() >= max_levels {
                         if low_price_first && level_update.price > last_price ||
                             !low_price_first && level_update.price < last_price {
                             return;
                         }
                     }
-                    if current_index == side.len() && current_index < NUM_LEVELS {
+                    if current_index == side.len() && current_index < max_levels {
                         last_price = level_update.price;
                         side.push(ConsolidateLevel::from_level(level_update));
                         current_index += 1;
@@ -91,7 +99,7 @@ impl Consolidate {
                         break;
                     }
                     current_index += 1;
-                    if current_index == NUM_LEVELS {
+                    if current_index == max_levels {
                         return;
                     }
                 }
@@ -123,6 +131,26 @@ mod tests {
     }
 
     #[test]
+    fn test_consolidate_levels_by_amount() {
+        let level1 = ExchangeLevel::from_strs("test1", "100.0", "3");
+        let level2 = ExchangeLevel::from_strs("test2", "100.0", "1");
+        let level3 = ExchangeLevel::from_strs("test3", "100.0", "2");
+        let level4 = ExchangeLevel::from_strs("test4", "100.0", "5");
+        let cons_level = ConsolidateLevel::from_levels(vec![level1, level2, level3, level4]);
+        assert_eq!(cons_level.price, Decimal::from_str("100.0").unwrap());
+        assert_eq!(cons_level.total_amount(), Decimal::from_str("11").unwrap());
+        let levels = cons_level.levels_by_amount();
+        assert_eq!(levels[0].amount, Decimal::from_str("5").unwrap());
+        assert_eq!(levels[0].exchange, "test4");
+        assert_eq!(levels[1].amount, Decimal::from_str("3").unwrap());
+        assert_eq!(levels[1].exchange, "test1");
+        assert_eq!(levels[2].amount, Decimal::from_str("2").unwrap());
+        assert_eq!(levels[2].exchange, "test3");
+        assert_eq!(levels[3].amount, Decimal::from_str("1").unwrap());
+        assert_eq!(levels[3].exchange, "test2");
+    }
+
+    #[test]
     fn test_consolidate_level_create_from_levels_panics() {
         let level1 = ExchangeLevel::from_strs("test1", "100.0", "99.9");
         let level2 = ExchangeLevel::from_strs("test2", "99.0", "99.9");
@@ -151,7 +179,7 @@ mod tests {
 
     #[test]
     fn test_empty_book() {
-        let mut book = Consolidate::new();
+        let mut book = Consolidate::new(3);
         let book_update = BookUpdate {
             exchange: "test",
             bids: vec![
@@ -167,6 +195,7 @@ mod tests {
         };
         book.update(book_update);
         let exp_book = Consolidate {
+            max_levels: 3,
             bids: vec![
                 ConsolidateLevel::from_level(ExchangeLevel::from_strs("test", "99", "10")),
                 ConsolidateLevel::from_level(ExchangeLevel::from_strs("test", "98", "10")),
@@ -193,7 +222,7 @@ mod tests {
             ExchangeLevel::from_strs("test2", "98", "10"),
             ExchangeLevel::from_strs("test2", "94", "10"),
         ];
-        Consolidate::update_side(&mut bids, bids_update, false);
+        Consolidate::update_side(&mut bids, bids_update, 10,false);
         let exp_bids = vec![
             ConsolidateLevel::from_level(ExchangeLevel::from_strs("test2", "100", "10")),
             ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
@@ -217,7 +246,7 @@ mod tests {
             ExchangeLevel::from_strs("test2", "101", "10"),
             ExchangeLevel::from_strs("test2", "100", "10"),
         ];
-        Consolidate::update_side(&mut bids, bids_update, false);
+        Consolidate::update_side(&mut bids, bids_update, 10, false);
         let exp_bids = vec![
             ConsolidateLevel::from_level(ExchangeLevel::from_strs("test2", "102", "10")),
             ConsolidateLevel::from_level(ExchangeLevel::from_strs("test2", "101", "10")),
@@ -241,7 +270,7 @@ mod tests {
             ExchangeLevel::from_strs("test2", "93", "10"),
             ExchangeLevel::from_strs("test2", "92", "10"),
         ];
-        Consolidate::update_side(&mut bids, bids_update, false);
+        Consolidate::update_side(&mut bids, bids_update, 10, false);
         let exp_bids = vec![
             ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
             ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "97", "10")),
@@ -265,7 +294,7 @@ mod tests {
             ExchangeLevel::from_strs("test2", "105", "10"),
             ExchangeLevel::from_strs("test2", "107", "10"),
         ];
-        Consolidate::update_side(&mut asks, asks_update, true);
+        Consolidate::update_side(&mut asks, asks_update, 10, true);
         let exp_asks = vec![
             ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "102", "10")),
             ConsolidateLevel::from_level(ExchangeLevel::from_strs("test2", "103", "10")),
@@ -289,7 +318,7 @@ mod tests {
             ExchangeLevel::from_strs("test2", "100", "10"),
             ExchangeLevel::from_strs("test2", "101", "10"),
         ];
-        Consolidate::update_side(&mut asks, asks_update, true);
+        Consolidate::update_side(&mut asks, asks_update, 10, true);
         let exp_asks = vec![
             ConsolidateLevel::from_level(ExchangeLevel::from_strs("test2", "99", "10")),
             ConsolidateLevel::from_level(ExchangeLevel::from_strs("test2", "100", "10")),
@@ -313,7 +342,7 @@ mod tests {
             ExchangeLevel::from_strs("test2", "108", "10"),
             ExchangeLevel::from_strs("test2", "109", "10"),
         ];
-        Consolidate::update_side(&mut asks, asks_update, true);
+        Consolidate::update_side(&mut asks, asks_update, 10, true);
         let exp_asks = vec![
             ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "102", "10")),
             ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "104", "10")),
@@ -337,7 +366,7 @@ mod tests {
             ExchangeLevel::from_strs("test1", "98", "15"),
             ExchangeLevel::from_strs("test2", "96", "10"),
         ];
-        Consolidate::update_side(&mut bids, bids_update, false);
+        Consolidate::update_side(&mut bids, bids_update, 10, false);
         let level1 = &bids[0];
         assert_eq!(level1.price, Decimal::from_str("99").unwrap());
         assert_eq!(level1.total_amount(), Decimal::from_str("5").unwrap());
@@ -364,7 +393,7 @@ mod tests {
             ExchangeLevel::from_strs("test1", "98", "15"),
             ExchangeLevel::from_strs("test2", "96", "10"),
         ];
-        Consolidate::update_side(&mut bids, bids_update, false);
+        Consolidate::update_side(&mut bids, bids_update, 10, false);
         let level1 = &bids[0];
         assert_eq!(level1.price, Decimal::from_str("99").unwrap());
         assert_eq!(level1.total_amount(), Decimal::from_str("15").unwrap());
@@ -391,7 +420,7 @@ mod tests {
             ExchangeLevel::from_strs("test2", "98", "10"),
             ExchangeLevel::from_strs("test2", "96", "10"),
         ];
-        Consolidate::update_side(&mut bids, bids_update, false);
+        Consolidate::update_side(&mut bids, bids_update, 10, false);
         let level1 = &bids[0];
         assert_eq!(level1.price, Decimal::from_str("99").unwrap());
         assert_eq!(level1.total_amount(), Decimal::from_str("20").unwrap());
@@ -418,7 +447,7 @@ mod tests {
             ExchangeLevel::from_strs("test2", "104", "10"),
             ExchangeLevel::from_strs("test2", "109", "10"),
         ];
-        Consolidate::update_side(&mut asks, asks_update, true);
+        Consolidate::update_side(&mut asks, asks_update, 10, true);
         let level1 = &asks[0];
         assert_eq!(level1.price, Decimal::from_str("102").unwrap());
         assert_eq!(level1.total_amount(), Decimal::from_str("20").unwrap());
@@ -445,7 +474,7 @@ mod tests {
             ExchangeLevel::from_strs("test1", "104", "15"),
             ExchangeLevel::from_strs("test2", "109", "10"),
         ];
-        Consolidate::update_side(&mut asks, asks_update, true);
+        Consolidate::update_side(&mut asks, asks_update, 10, true);
         let level1 = &asks[0];
         assert_eq!(level1.price, Decimal::from_str("102").unwrap());
         assert_eq!(level1.total_amount(), Decimal::from_str("5").unwrap());
@@ -472,7 +501,7 @@ mod tests {
             ExchangeLevel::from_strs("test1", "104", "15"),
             ExchangeLevel::from_strs("test2", "109", "10"),
         ];
-        Consolidate::update_side(&mut asks, asks_update, true);
+        Consolidate::update_side(&mut asks, asks_update, 10, true);
         let level1 = &asks[0];
         assert_eq!(level1.price, Decimal::from_str("102").unwrap());
         assert_eq!(level1.total_amount(), Decimal::from_str("15").unwrap());
@@ -486,10 +515,61 @@ mod tests {
         assert_eq!(level4.price, Decimal::from_str("109").unwrap());
         assert_eq!(level4.total_amount(), Decimal::from_str("10").unwrap());
     }
+    
+    #[test]
+    fn test_update_into_bids_side_with_trimming() {
+        let mut bids = vec![
+            ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
+            ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "98", "10")),
+            ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "97", "10")),
+        ];
+        let bids_update = vec![
+            ExchangeLevel::from_strs("test2", "99", "5"),
+            ExchangeLevel::from_strs("test1", "98", "15"),
+            ExchangeLevel::from_strs("test2", "96", "10"),
+        ];
+        Consolidate::update_side(&mut bids, bids_update, 3, false);
+        assert_eq!(bids.len(), 3);
+        let level1 = &bids[0];
+        assert_eq!(level1.price, Decimal::from_str("99").unwrap());
+        assert_eq!(level1.total_amount(), Decimal::from_str("15").unwrap());
+        let level2 = &bids[1];
+        assert_eq!(level2.price, Decimal::from_str("98").unwrap());
+        assert_eq!(level2.total_amount(), Decimal::from_str("15").unwrap());
+        let level3 = &bids[2];
+        assert_eq!(level3.price, Decimal::from_str("97").unwrap());
+        assert_eq!(level3.total_amount(), Decimal::from_str("10").unwrap());
+    }
+    
+    #[test]
+    fn test_update_into_asks_side_with_trimming() {
+        let mut asks = vec![
+            ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "102", "10")),
+            ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "104", "10")),
+            ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "106", "10")),
+        ];
+        let asks_update = vec![
+            ExchangeLevel::from_strs("test2", "102", "5"),
+            ExchangeLevel::from_strs("test1", "104", "15"),
+            ExchangeLevel::from_strs("test2", "109", "10"),
+        ];
+        Consolidate::update_side(&mut asks, asks_update, 3, true);
+        assert_eq!(asks.len(), 3);
+        let level1 = &asks[0];
+        assert_eq!(level1.price, Decimal::from_str("102").unwrap());
+        assert_eq!(level1.total_amount(), Decimal::from_str("15").unwrap());
+        let level2 = &asks[1];
+        assert_eq!(level2.price, Decimal::from_str("104").unwrap());
+        assert_eq!(level2.total_amount(), Decimal::from_str("15").unwrap());
+        let level3 = &asks[2];
+        assert_eq!(level3.price, Decimal::from_str("106").unwrap());
+        assert_eq!(level3.total_amount(), Decimal::from_str("10").unwrap());
+    }
 
     #[test]
     fn test_book_amounts() {
         let mut book = Consolidate {
+            max_levels: 10,
             bids: vec![
                 ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
                 ConsolidateLevel::from_level(ExchangeLevel::from_strs("test2", "97", "10")),

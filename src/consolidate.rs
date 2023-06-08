@@ -1,3 +1,4 @@
+use std::cmp::min;
 use rust_decimal::prelude::*;
 use std::collections::HashMap;
 
@@ -62,6 +63,31 @@ impl Consolidate {
             bids: vec![],
             asks: vec![],
         }
+    }
+
+    pub fn best_bids(&self) -> Vec<&ExchangeLevel> {
+        Consolidate::best_levels(&self.bids, self.max_levels)
+    }
+
+    pub fn best_asks(&self) -> Vec<&ExchangeLevel> {
+        Consolidate::best_levels(&self.asks, self.max_levels)
+    }
+
+    fn best_levels(side: &Vec<ConsolidateLevel>, max_levels: usize) -> Vec<&ExchangeLevel> {
+        let mut result: Vec<&ExchangeLevel> = vec![];
+        let mut levels_to_add = max_levels;
+        if !side.is_empty() {
+            for price_cons_level in side {
+                let price_levels = price_cons_level.levels_by_amount();
+                let price_levels_to_add = min(price_levels.len(), levels_to_add);
+                result.extend_from_slice(&price_levels[0..price_levels_to_add]);
+                levels_to_add -= price_levels_to_add;
+                if levels_to_add == 0 {
+                    break;
+                }
+            }
+        }
+        result
     }
 
     fn update(&mut self, book_update: BookUpdate) {
@@ -222,7 +248,7 @@ mod tests {
             ExchangeLevel::from_strs("test2", "98", "10"),
             ExchangeLevel::from_strs("test2", "94", "10"),
         ];
-        Consolidate::update_side(&mut bids, bids_update, 10,false);
+        Consolidate::update_side(&mut bids, bids_update, 10, false);
         let exp_bids = vec![
             ConsolidateLevel::from_level(ExchangeLevel::from_strs("test2", "100", "10")),
             ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
@@ -407,7 +433,7 @@ mod tests {
         assert_eq!(level4.price, Decimal::from_str("96").unwrap());
         assert_eq!(level4.total_amount(), Decimal::from_str("10").unwrap());
     }
-    
+
     #[test]
     fn test_merge_and_add_into_bids_side() {
         let mut bids = vec![
@@ -515,7 +541,7 @@ mod tests {
         assert_eq!(level4.price, Decimal::from_str("109").unwrap());
         assert_eq!(level4.total_amount(), Decimal::from_str("10").unwrap());
     }
-    
+
     #[test]
     fn test_update_into_bids_side_with_trimming() {
         let mut bids = vec![
@@ -540,7 +566,7 @@ mod tests {
         assert_eq!(level3.price, Decimal::from_str("97").unwrap());
         assert_eq!(level3.total_amount(), Decimal::from_str("10").unwrap());
     }
-    
+
     #[test]
     fn test_update_into_asks_side_with_trimming() {
         let mut asks = vec![
@@ -646,5 +672,58 @@ mod tests {
         let ask6 = &book.asks[5];
         assert_eq!(ask6.price, Decimal::from_str("107").unwrap());
         assert_eq!(ask6.total_amount(), Decimal::from_str("10").unwrap());
+    }
+
+    #[test]
+    fn test_book_best_bids() {
+        let book = Consolidate {
+            max_levels: 3,
+            bids: vec![
+                ConsolidateLevel::from_levels(vec![
+                    ExchangeLevel::from_strs("test1", "99", "5"),
+                    ExchangeLevel::from_strs("test2", "99", "10"),
+                ]),
+                ConsolidateLevel::from_levels(vec![
+                    ExchangeLevel::from_strs("test2", "100", "10")
+                ]),
+                ConsolidateLevel::from_levels(vec![
+                    ExchangeLevel::from_strs("test1", "101", "10")
+                ]),
+            ],
+            asks: vec![],
+        };
+        let best_bids = book.best_bids();
+        assert_eq!(best_bids, vec![
+            &ExchangeLevel::from_strs("test2", "99", "10"),
+            &ExchangeLevel::from_strs("test1", "99", "5"),
+            &ExchangeLevel::from_strs("test2", "100", "10"),
+        ]);
+    }
+
+    #[test]
+    fn test_book_best_asks() {
+        let book = Consolidate {
+            max_levels: 3,
+            bids: vec![],
+            asks: vec![
+                ConsolidateLevel::from_levels(vec![
+                    ExchangeLevel::from_strs("test1", "99", "5"),
+                    ExchangeLevel::from_strs("test2", "99", "10"),
+                    ExchangeLevel::from_strs("test3", "99", "2"),
+                ]),
+                ConsolidateLevel::from_levels(vec![
+                    ExchangeLevel::from_strs("test2", "100", "10")
+                ]),
+                ConsolidateLevel::from_levels(vec![
+                    ExchangeLevel::from_strs("test1", "101", "10")
+                ]),
+            ],
+        };
+        let best_asks = book.best_asks();
+        assert_eq!(best_asks, vec![
+            &ExchangeLevel::from_strs("test2", "99", "10"),
+            &ExchangeLevel::from_strs("test1", "99", "5"),
+            &ExchangeLevel::from_strs("test3", "99", "2"),
+        ]);
     }
 }

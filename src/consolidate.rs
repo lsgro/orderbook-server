@@ -44,7 +44,7 @@ impl ConsolidateLevel {
 
     fn levels_by_amount(&self) -> Vec<&ExchangeLevel> {
         let mut levels: Vec<&ExchangeLevel> = self.exchange_levels.values().collect();
-        levels.sort_by(|a, b| b.amount.cmp(&a.amount));
+        levels.sort_by(|&a, &b| b.amount.cmp(&a.amount));
         levels
     }
 }
@@ -91,17 +91,30 @@ impl Consolidate {
     }
 
     fn update(&mut self, book_update: BookUpdate) {
+        Consolidate::reset_exchange_levels(&mut self.bids, book_update.exchange);
         Consolidate::update_side(&mut self.bids, book_update.bids, self.max_levels, false);
+        Consolidate::reset_exchange_levels(&mut self.asks, book_update.exchange);
         Consolidate::update_side(&mut self.asks, book_update.asks, self.max_levels,true);
+    }
+
+    fn reset_exchange_levels(side: &mut Vec<ConsolidateLevel>, exchange: &'static str) {
+        for level in side.iter_mut() {
+            level.exchange_levels.remove(exchange);
+        }
+        side.retain(|level| !level.exchange_levels.is_empty())
     }
 
     fn update_side(side: &mut Vec<ConsolidateLevel>, side_update: Vec<ExchangeLevel>, max_levels: usize, low_price_first: bool) {
         if side.is_empty() {
             side.extend(side_update.into_iter().map(ConsolidateLevel::from_level));
-        } else {
+        } else if !side_update.is_empty() {
             let mut current_index: usize = 0;
+            let mut prev_update_price: Decimal = side_update[0].price;
             let mut last_price: Decimal = side[side.len() - 1].price;
             for level_update in side_update {
+                assert!(low_price_first && level_update.price >= prev_update_price ||
+                    !low_price_first && level_update.price <= prev_update_price, "Non monotone update levels");
+                prev_update_price = level_update.price;
                 while current_index < max_levels {
                     if side.len() >= max_levels {
                         if low_price_first && level_update.price > last_price ||
@@ -177,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn test_consolidate_level_create_from_levels_panics() {
+    fn test_consolidate_level_create_from_levels_panics_if_different_price() {
         let level1 = ExchangeLevel::from_strs("test1", "100.0", "99.9");
         let level2 = ExchangeLevel::from_strs("test2", "99.0", "99.9");
         let result = std::panic::catch_unwind(|| ConsolidateLevel::from_levels(vec![level1, level2]));
@@ -195,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn test_consolidate_level_update_panics() {
+    fn test_consolidate_level_update_panics_if_different_price() {
         let level1 = ExchangeLevel::from_strs("test", "100.0", "99.9");
         let level2 = ExchangeLevel::from_strs("test", "99.0", "90.0");
         let mut cons_level = ConsolidateLevel::from_level(level1);
@@ -611,11 +624,14 @@ mod tests {
             exchange: "test1",
             bids: vec![
                 ExchangeLevel::from_strs("test1", "100", "10"),
+                ExchangeLevel::from_strs("test1", "99", "10"),
                 ExchangeLevel::from_strs("test1", "97", "5"),
                 ExchangeLevel::from_strs("test1", "95", "5"),
             ],
             asks: vec![
+                ExchangeLevel::from_strs("test1", "102", "10"),
                 ExchangeLevel::from_strs("test1", "103", "10"),
+                ExchangeLevel::from_strs("test1", "104", "10"),
                 ExchangeLevel::from_strs("test1", "105", "10"),
                 ExchangeLevel::from_strs("test1", "106", "5"),
             ],
@@ -631,6 +647,7 @@ mod tests {
             asks: vec![
                 ExchangeLevel::from_strs("test2", "102", "10"),
                 ExchangeLevel::from_strs("test2", "105", "10"),
+                ExchangeLevel::from_strs("test2", "106", "10"),
                 ExchangeLevel::from_strs("test2", "107", "10"),
             ],
         };
@@ -672,6 +689,36 @@ mod tests {
         let ask6 = &book.asks[5];
         assert_eq!(ask6.price, Decimal::from_str("107").unwrap());
         assert_eq!(ask6.total_amount(), Decimal::from_str("10").unwrap());
+    }
+
+    #[test]
+    fn test_book_update_panics_if_wrong_order() {
+        let mut book = Consolidate {
+            max_levels: 10,
+            bids: vec![
+                ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
+                ConsolidateLevel::from_level(ExchangeLevel::from_strs("test2", "97", "10")),
+                ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "95", "10")),
+            ],
+            asks: vec![
+                ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "102", "10")),
+                ConsolidateLevel::from_level(ExchangeLevel::from_strs("test1", "104", "10")),
+                ConsolidateLevel::from_level(ExchangeLevel::from_strs("test2", "106", "10")),
+            ]
+        };
+        let book_update = BookUpdate {
+            exchange: "test1",
+            bids: vec![
+                ExchangeLevel::from_strs("test1", "99", "10"), // <- wrong order
+                ExchangeLevel::from_strs("test1", "100", "10"),
+            ],
+            asks: vec![
+                ExchangeLevel::from_strs("test1", "102", "10"),
+                ExchangeLevel::from_strs("test1", "103", "10"),
+            ],
+        };
+        let result = std::panic::catch_unwind(move || book.update(book_update));
+        assert!(result.is_err());
     }
 
     #[test]

@@ -1,9 +1,153 @@
 use std::cmp::min;
+use std::ops::Index;
 use rust_decimal::prelude::*;
 use std::collections::HashMap;
 
 use crate::core::*;
 
+
+#[derive(PartialEq, Debug)]
+pub struct AggregateBook {
+    max_levels: usize,
+    bids: AggregateBookSide,
+    asks: AggregateBookSide,
+}
+
+impl AggregateBook {
+    pub fn new(max_levels: usize) -> Self {
+        Self {
+            max_levels,
+            bids: AggregateBookSide::new(),
+            asks: AggregateBookSide::new(),
+        }
+    }
+
+    pub fn best_bids(&self) -> Vec<&ExchangeLevel> {
+        self.bids.best_levels(self.max_levels)
+    }
+
+    pub fn best_asks(&self) -> Vec<&ExchangeLevel> {
+        self.asks.best_levels(self.max_levels)
+    }
+
+    pub fn update(&mut self, book_update: BookUpdate) {
+        self.bids.replace_levels_by_exchange(
+            book_update.bids,
+            self.max_levels,
+            book_update.exchange,
+            false);
+        self.asks.replace_levels_by_exchange(
+            book_update.asks,
+            self.max_levels,
+            book_update.exchange,
+            true);
+    }
+
+
+}
+
+
+#[derive(PartialEq, Debug)]
+struct AggregateBookSide(Vec<AggregateLevel>);
+
+impl AggregateBookSide {
+    fn new() -> Self {
+        Self(vec![])
+    }
+
+    pub fn len(&self) -> usize {
+        let Self(side) = self;
+        side.len()
+    }
+
+    fn best_levels(&self, max_levels: usize) -> Vec<&ExchangeLevel> {
+        let mut result: Vec<&ExchangeLevel> = vec![];
+        let mut levels_to_add = max_levels;
+        let Self(side) = self;
+        if !side.is_empty() {
+            for price_cons_level in side {
+                let price_levels = price_cons_level.levels_by_amount();
+                let price_levels_to_add = min(price_levels.len(), levels_to_add);
+                result.extend_from_slice(&price_levels[0..price_levels_to_add]);
+                levels_to_add -= price_levels_to_add;
+                if levels_to_add == 0 {
+                    break;
+                }
+            }
+        }
+        result
+    }
+
+    fn replace_levels_by_exchange(
+        &mut self,
+        side_update: Vec<ExchangeLevel>,
+        max_levels: usize,
+        exchange: &'static str,
+        low_price_first: bool) {
+        self.reset_levels_by_exchange(exchange);
+        self.update_side(side_update, max_levels, low_price_first);
+    }
+
+    fn reset_levels_by_exchange(&mut self, exchange: &'static str) {
+        let Self(side) = self;
+        for level in side.iter_mut() {
+            level.exchange_levels.remove(exchange);
+        }
+        side.retain(|level| !level.exchange_levels.is_empty())
+    }
+
+    fn update_side(&mut self, side_update: Vec<ExchangeLevel>, max_levels: usize, low_price_first: bool) {
+        let Self(side) = self;
+        if side.is_empty() {
+            side.extend(side_update.into_iter().map(AggregateLevel::from_level));
+        } else if !side_update.is_empty() {
+            let mut current_index: usize = 0;
+            let mut prev_update_price: Decimal = side_update[0].price;
+            let mut last_price: Decimal = side[side.len() - 1].price;
+            for level_update in side_update {
+                assert!(low_price_first && level_update.price >= prev_update_price ||
+                            !low_price_first && level_update.price <= prev_update_price, "Non monotone update levels");
+                prev_update_price = level_update.price;
+                while current_index < max_levels {
+                    if side.len() >= max_levels {
+                        if low_price_first && level_update.price > last_price ||
+                            !low_price_first && level_update.price < last_price {
+                            return;
+                        }
+                    }
+                    if current_index == side.len() && current_index < max_levels {
+                        last_price = level_update.price;
+                        side.push(AggregateLevel::from_level(level_update));
+                        current_index += 1;
+                        break;
+                    } else if low_price_first && level_update.price < side[current_index].price ||
+                        !low_price_first && level_update.price > side[current_index].price {
+                        side.insert(current_index, AggregateLevel::from_level(level_update));
+                        current_index += 1;
+                        break;
+                    } else if level_update.price == side[current_index].price {
+                        side[current_index].update(level_update);
+                        current_index += 1;
+                        break;
+                    }
+                    current_index += 1;
+                    if current_index == max_levels {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl Index<usize> for AggregateBookSide {
+    type Output = AggregateLevel;
+
+    fn index(&self, rhs: usize) -> &Self::Output {
+        let Self(side) = self;
+        &side[rhs]
+    }
+}
 
 #[derive(PartialEq, Debug)]
 struct AggregateLevel {
@@ -48,122 +192,6 @@ impl AggregateLevel {
         let mut levels: Vec<&ExchangeLevel> = self.exchange_levels.values().collect();
         levels.sort_by(|&a, &b| b.amount.cmp(&a.amount));
         levels
-    }
-}
-
-#[derive(PartialEq, Debug)]
-pub struct AggregateBook {
-    max_levels: usize,
-    bids: Vec<AggregateLevel>,
-    asks: Vec<AggregateLevel>,
-}
-
-impl AggregateBook {
-    pub fn new(max_levels: usize) -> Self {
-        Self {
-            max_levels,
-            bids: vec![],
-            asks: vec![],
-        }
-    }
-
-    pub fn best_bids(&self) -> Vec<&ExchangeLevel> {
-        Self::best_levels(&self.bids, self.max_levels)
-    }
-
-    pub fn best_asks(&self) -> Vec<&ExchangeLevel> {
-        Self::best_levels(&self.asks, self.max_levels)
-    }
-
-    fn best_levels(side: &Vec<AggregateLevel>, max_levels: usize) -> Vec<&ExchangeLevel> {
-        let mut result: Vec<&ExchangeLevel> = vec![];
-        let mut levels_to_add = max_levels;
-        if !side.is_empty() {
-            for price_cons_level in side {
-                let price_levels = price_cons_level.levels_by_amount();
-                let price_levels_to_add = min(price_levels.len(), levels_to_add);
-                result.extend_from_slice(&price_levels[0..price_levels_to_add]);
-                levels_to_add -= price_levels_to_add;
-                if levels_to_add == 0 {
-                    break;
-                }
-            }
-        }
-        result
-    }
-
-    pub fn update(&mut self, book_update: BookUpdate) {
-        Self::replace_levels_by_exchange(
-            &mut self.bids,
-            book_update.bids,
-            self.max_levels,
-            book_update.exchange,
-            false);
-        Self::replace_levels_by_exchange(
-            &mut self.asks,
-            book_update.asks,
-            self.max_levels,
-            book_update.exchange,
-            true);
-    }
-
-    fn replace_levels_by_exchange(
-            side: &mut Vec<AggregateLevel>,
-            side_update: Vec<ExchangeLevel>,
-            max_levels: usize,
-            exchange: &'static str,
-            low_price_first: bool) {
-        Self::reset_levels_by_exchange(side, exchange);
-        Self::update_side(side, side_update, max_levels, low_price_first);
-    }
-
-    fn reset_levels_by_exchange(side: &mut Vec<AggregateLevel>, exchange: &'static str) {
-        for level in side.iter_mut() {
-            level.exchange_levels.remove(exchange);
-        }
-        side.retain(|level| !level.exchange_levels.is_empty())
-    }
-
-    fn update_side(side: &mut Vec<AggregateLevel>, side_update: Vec<ExchangeLevel>, max_levels: usize, low_price_first: bool) {
-        if side.is_empty() {
-            side.extend(side_update.into_iter().map(AggregateLevel::from_level));
-        } else if !side_update.is_empty() {
-            let mut current_index: usize = 0;
-            let mut prev_update_price: Decimal = side_update[0].price;
-            let mut last_price: Decimal = side[side.len() - 1].price;
-            for level_update in side_update {
-                assert!(low_price_first && level_update.price >= prev_update_price ||
-                    !low_price_first && level_update.price <= prev_update_price, "Non monotone update levels");
-                prev_update_price = level_update.price;
-                while current_index < max_levels {
-                    if side.len() >= max_levels {
-                        if low_price_first && level_update.price > last_price ||
-                            !low_price_first && level_update.price < last_price {
-                            return;
-                        }
-                    }
-                    if current_index == side.len() && current_index < max_levels {
-                        last_price = level_update.price;
-                        side.push(AggregateLevel::from_level(level_update));
-                        current_index += 1;
-                        break;
-                    } else if low_price_first && level_update.price < side[current_index].price ||
-                        !low_price_first && level_update.price > side[current_index].price {
-                        side.insert(current_index, AggregateLevel::from_level(level_update));
-                        current_index += 1;
-                        break;
-                    } else if level_update.price == side[current_index].price {
-                        side[current_index].update(level_update);
-                        current_index += 1;
-                        break;
-                    }
-                    current_index += 1;
-                    if current_index == max_levels {
-                        return;
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -255,177 +283,177 @@ mod tests {
         book.update(book_update);
         let exp_book = AggregateBook {
             max_levels: 3,
-            bids: vec![
+            bids: AggregateBookSide(vec![
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test", "99", "10")),
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test", "98", "10")),
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test", "97", "10")),
-            ],
-            asks: vec![
+            ]),
+            asks: AggregateBookSide(vec![
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test", "100", "10")),
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test", "101", "10")),
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test", "102", "10")),
-            ]
+            ]),
         };
         assert_eq!(book, exp_book);
     }
 
     #[test]
     fn test_insert_into_bids_side() {
-        let mut bids = vec![
+        let mut bids = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "97", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "95", "10")),
-        ];
+        ]);
         let bids_update = vec![
             ExchangeLevel::from_strs("test2", "100", "10"),
             ExchangeLevel::from_strs("test2", "98", "10"),
             ExchangeLevel::from_strs("test2", "94", "10"),
         ];
-        AggregateBook::update_side(&mut bids, bids_update, 10, false);
-        let exp_bids = vec![
+        bids.update_side(bids_update, 10, false);
+        let exp_bids = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "100", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "98", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "97", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "95", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "94", "10")),
-        ];
+        ]);
         assert_eq!(bids, exp_bids);
     }
 
     #[test]
     fn test_add_at_beginning_to_bids_side() {
-        let mut bids = vec![
+        let mut bids = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "97", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "95", "10")),
-        ];
+        ]);
         let bids_update = vec![
             ExchangeLevel::from_strs("test2", "102", "10"),
             ExchangeLevel::from_strs("test2", "101", "10"),
             ExchangeLevel::from_strs("test2", "100", "10"),
         ];
-        AggregateBook::update_side(&mut bids, bids_update, 10, false);
-        let exp_bids = vec![
+        bids.update_side(bids_update, 10, false);
+        let exp_bids = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "102", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "101", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "100", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "97", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "95", "10")),
-        ];
+        ]);
         assert_eq!(bids, exp_bids);
     }
 
     #[test]
     fn test_add_at_end_to_bids_side() {
-        let mut bids = vec![
+        let mut bids = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "97", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "95", "10")),
-        ];
+        ]);
         let bids_update = vec![
             ExchangeLevel::from_strs("test2", "94", "10"),
             ExchangeLevel::from_strs("test2", "93", "10"),
             ExchangeLevel::from_strs("test2", "92", "10"),
         ];
-        AggregateBook::update_side(&mut bids, bids_update, 10, false);
-        let exp_bids = vec![
+        bids.update_side(bids_update, 10, false);
+        let exp_bids = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "97", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "95", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "94", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "93", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "92", "10")),
-        ];
+        ]);
         assert_eq!(bids, exp_bids);
     }
 
     #[test]
     fn test_insert_into_asks_side() {
-        let mut asks = vec![
+        let mut asks = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "102", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "104", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "106", "10")),
-        ];
+        ]);
         let asks_update = vec![
             ExchangeLevel::from_strs("test2", "103", "10"),
             ExchangeLevel::from_strs("test2", "105", "10"),
             ExchangeLevel::from_strs("test2", "107", "10"),
         ];
-        AggregateBook::update_side(&mut asks, asks_update, 10, true);
-        let exp_asks = vec![
+        asks.update_side(asks_update, 10, true);
+        let exp_asks = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "102", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "103", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "104", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "105", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "106", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "107", "10")),
-        ];
+        ]);
         assert_eq!(asks, exp_asks);
     }
 
     #[test]
     fn test_add_at_beginning_to_asks_side() {
-        let mut asks = vec![
+        let mut asks = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "102", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "104", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "106", "10")),
-        ];
+        ]);
         let asks_update = vec![
             ExchangeLevel::from_strs("test2", "99", "10"),
             ExchangeLevel::from_strs("test2", "100", "10"),
             ExchangeLevel::from_strs("test2", "101", "10"),
         ];
-        AggregateBook::update_side(&mut asks, asks_update, 10, true);
-        let exp_asks = vec![
+        asks.update_side(asks_update, 10, true);
+        let exp_asks = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "99", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "100", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "101", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "102", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "104", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "106", "10")),
-        ];
+        ]);
         assert_eq!(asks, exp_asks);
     }
 
     #[test]
     fn test_add_at_end_to_asks_side() {
-        let mut asks = vec![
+        let mut asks = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "102", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "104", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "106", "10")),
-        ];
+        ]);
         let asks_update = vec![
             ExchangeLevel::from_strs("test2", "107", "10"),
             ExchangeLevel::from_strs("test2", "108", "10"),
             ExchangeLevel::from_strs("test2", "109", "10"),
         ];
-        AggregateBook::update_side(&mut asks, asks_update, 10, true);
-        let exp_asks = vec![
+        asks.update_side(asks_update, 10, true);
+        let exp_asks = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "102", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "104", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "106", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "107", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "108", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "109", "10")),
-        ];
+        ]);
         assert_eq!(asks, exp_asks);
     }
 
     #[test]
     fn test_update_and_add_into_bids_side() {
-        let mut bids = vec![
+        let mut bids = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "98", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "97", "10")),
-        ];
+        ]);
         let bids_update = vec![
             ExchangeLevel::from_strs("test1", "99", "5"),
             ExchangeLevel::from_strs("test1", "98", "15"),
             ExchangeLevel::from_strs("test2", "96", "10"),
         ];
-        AggregateBook::update_side(&mut bids, bids_update, 10, false);
+        bids.update_side(bids_update, 10, false);
         let level1 = &bids[0];
         assert_eq!(level1.price, Decimal::from_str("99").unwrap());
         assert_eq!(level1.total_amount(), Decimal::from_str("5").unwrap());
@@ -442,17 +470,17 @@ mod tests {
 
     #[test]
     fn test_merge_update_and_add_into_bids_side() {
-        let mut bids = vec![
+        let mut bids = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "98", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "97", "10")),
-        ];
+        ]);
         let bids_update = vec![
             ExchangeLevel::from_strs("test2", "99", "5"),
             ExchangeLevel::from_strs("test1", "98", "15"),
             ExchangeLevel::from_strs("test2", "96", "10"),
         ];
-        AggregateBook::update_side(&mut bids, bids_update, 10, false);
+        bids.update_side(bids_update, 10, false);
         let level1 = &bids[0];
         assert_eq!(level1.price, Decimal::from_str("99").unwrap());
         assert_eq!(level1.total_amount(), Decimal::from_str("15").unwrap());
@@ -469,17 +497,17 @@ mod tests {
 
     #[test]
     fn test_merge_and_add_into_bids_side() {
-        let mut bids = vec![
+        let mut bids = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "98", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "97", "10")),
-        ];
+        ]);
         let bids_update = vec![
             ExchangeLevel::from_strs("test2", "99", "10"),
             ExchangeLevel::from_strs("test2", "98", "10"),
             ExchangeLevel::from_strs("test2", "96", "10"),
         ];
-        AggregateBook::update_side(&mut bids, bids_update, 10, false);
+        bids.update_side(bids_update, 10, false);
         let level1 = &bids[0];
         assert_eq!(level1.price, Decimal::from_str("99").unwrap());
         assert_eq!(level1.total_amount(), Decimal::from_str("20").unwrap());
@@ -496,17 +524,17 @@ mod tests {
 
     #[test]
     fn test_merge_and_add_into_asks_side() {
-        let mut asks = vec![
+        let mut asks = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "102", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "104", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "106", "10")),
-        ];
+        ]);
         let asks_update = vec![
             ExchangeLevel::from_strs("test2", "102", "10"),
             ExchangeLevel::from_strs("test2", "104", "10"),
             ExchangeLevel::from_strs("test2", "109", "10"),
         ];
-        AggregateBook::update_side(&mut asks, asks_update, 10, true);
+        asks.update_side(asks_update, 10, true);
         let level1 = &asks[0];
         assert_eq!(level1.price, Decimal::from_str("102").unwrap());
         assert_eq!(level1.total_amount(), Decimal::from_str("20").unwrap());
@@ -523,17 +551,17 @@ mod tests {
 
     #[test]
     fn test_update_and_add_into_asks_side() {
-        let mut asks = vec![
+        let mut asks = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "102", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "104", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "106", "10")),
-        ];
+        ]);
         let asks_update = vec![
             ExchangeLevel::from_strs("test1", "102", "5"),
             ExchangeLevel::from_strs("test1", "104", "15"),
             ExchangeLevel::from_strs("test2", "109", "10"),
         ];
-        AggregateBook::update_side(&mut asks, asks_update, 10, true);
+        asks.update_side(asks_update, 10, true);
         let level1 = &asks[0];
         assert_eq!(level1.price, Decimal::from_str("102").unwrap());
         assert_eq!(level1.total_amount(), Decimal::from_str("5").unwrap());
@@ -550,17 +578,17 @@ mod tests {
 
     #[test]
     fn test_merge_update_and_add_into_asks_side() {
-        let mut asks = vec![
+        let mut asks = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "102", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "104", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "106", "10")),
-        ];
+        ]);
         let asks_update = vec![
             ExchangeLevel::from_strs("test2", "102", "5"),
             ExchangeLevel::from_strs("test1", "104", "15"),
             ExchangeLevel::from_strs("test2", "109", "10"),
         ];
-        AggregateBook::update_side(&mut asks, asks_update, 10, true);
+        asks.update_side(asks_update, 10, true);
         let level1 = &asks[0];
         assert_eq!(level1.price, Decimal::from_str("102").unwrap());
         assert_eq!(level1.total_amount(), Decimal::from_str("15").unwrap());
@@ -577,17 +605,17 @@ mod tests {
 
     #[test]
     fn test_update_into_bids_side_with_trimming() {
-        let mut bids = vec![
+        let mut bids = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "98", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "97", "10")),
-        ];
+        ]);
         let bids_update = vec![
             ExchangeLevel::from_strs("test2", "99", "5"),
             ExchangeLevel::from_strs("test1", "98", "15"),
             ExchangeLevel::from_strs("test2", "96", "10"),
         ];
-        AggregateBook::update_side(&mut bids, bids_update, 3, false);
+        bids.update_side(bids_update, 3, false);
         assert_eq!(bids.len(), 3);
         let level1 = &bids[0];
         assert_eq!(level1.price, Decimal::from_str("99").unwrap());
@@ -602,17 +630,17 @@ mod tests {
 
     #[test]
     fn test_update_into_asks_side_with_trimming() {
-        let mut asks = vec![
+        let mut asks = AggregateBookSide(vec![
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "102", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "104", "10")),
             AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "106", "10")),
-        ];
+        ]);
         let asks_update = vec![
             ExchangeLevel::from_strs("test2", "102", "5"),
             ExchangeLevel::from_strs("test1", "104", "15"),
             ExchangeLevel::from_strs("test2", "109", "10"),
         ];
-        AggregateBook::update_side(&mut asks, asks_update, 3, true);
+        asks.update_side(asks_update, 3, true);
         assert_eq!(asks.len(), 3);
         let level1 = &asks[0];
         assert_eq!(level1.price, Decimal::from_str("102").unwrap());
@@ -629,16 +657,16 @@ mod tests {
     fn test_book_amounts() {
         let mut book = AggregateBook {
             max_levels: 10,
-            bids: vec![
+            bids: AggregateBookSide(vec![
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "97", "10")),
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "95", "10")),
-            ],
-            asks: vec![
+            ]),
+            asks: AggregateBookSide(vec![
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "102", "10")),
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "104", "10")),
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "106", "10")),
-            ]
+            ]),
         };
         let book_update1 = BookUpdate {
             exchange: "test1",
@@ -715,16 +743,16 @@ mod tests {
     fn test_book_update_panics_if_wrong_order() {
         let mut book = AggregateBook {
             max_levels: 10,
-            bids: vec![
+            bids: AggregateBookSide(vec![
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "99", "10")),
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "97", "10")),
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "95", "10")),
-            ],
-            asks: vec![
+            ]),
+            asks: AggregateBookSide(vec![
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "102", "10")),
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test1", "104", "10")),
                 AggregateLevel::from_level(ExchangeLevel::from_strs("test2", "106", "10")),
-            ]
+            ]),
         };
         let book_update = BookUpdate {
             exchange: "test1",
@@ -745,7 +773,7 @@ mod tests {
     fn test_book_best_bids() {
         let book = AggregateBook {
             max_levels: 3,
-            bids: vec![
+            bids: AggregateBookSide(vec![
                 AggregateLevel::from_levels(vec![
                     ExchangeLevel::from_strs("test1", "99", "5"),
                     ExchangeLevel::from_strs("test2", "99", "10"),
@@ -756,8 +784,8 @@ mod tests {
                 AggregateLevel::from_levels(vec![
                     ExchangeLevel::from_strs("test1", "101", "10")
                 ]),
-            ],
-            asks: vec![],
+            ]),
+            asks: AggregateBookSide::new(),
         };
         let best_bids = book.best_bids();
         assert_eq!(best_bids, vec![
@@ -771,8 +799,8 @@ mod tests {
     fn test_book_best_asks() {
         let book = AggregateBook {
             max_levels: 3,
-            bids: vec![],
-            asks: vec![
+            bids: AggregateBookSide::new(),
+            asks: AggregateBookSide(vec![
                 AggregateLevel::from_levels(vec![
                     ExchangeLevel::from_strs("test1", "99", "5"),
                     ExchangeLevel::from_strs("test2", "99", "10"),
@@ -784,7 +812,7 @@ mod tests {
                 AggregateLevel::from_levels(vec![
                     ExchangeLevel::from_strs("test1", "101", "10")
                 ]),
-            ],
+            ]),
         };
         let best_asks = book.best_asks();
         assert_eq!(best_asks, vec![

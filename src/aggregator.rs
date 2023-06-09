@@ -53,10 +53,23 @@ struct AggregateBookSide {
 
 impl AggregateBookSide {
     fn new(ordering: Ranking, max_levels: usize, data: Vec<AggregateLevel>) -> Self {
-        Self {
+        let instance = Self {
             ordering,
             max_levels,
             data,
+        };
+        instance.check_integrity();
+        instance
+    }
+
+    fn check_integrity(&self) {
+        let mut prev_price: Option<Decimal> = None;
+        for level in &self.data {
+            if let Some(a_price) = prev_price {
+                assert!(self.is_before(a_price, level.price))
+            } else {
+                prev_price = Some(level.price);
+            }
         }
     }
 
@@ -774,22 +787,22 @@ mod tests {
         let book = AggregateBook {
             bids: AggregateBookSide::new(Ranking::GreaterFirst, 3, vec![
                 AggregateLevel::from_levels(vec![
-                    ExchangeLevel::from_strs("test1", "99", "5"),
-                    ExchangeLevel::from_strs("test2", "99", "10"),
+                    ExchangeLevel::from_strs("test1", "101", "5"),
+                    ExchangeLevel::from_strs("test2", "101", "10"),
                 ]),
                 AggregateLevel::from_levels(vec![
                     ExchangeLevel::from_strs("test2", "100", "10")
                 ]),
                 AggregateLevel::from_levels(vec![
-                    ExchangeLevel::from_strs("test1", "101", "10")
+                    ExchangeLevel::from_strs("test1", "99", "10")
                 ]),
             ]),
             asks: AggregateBookSide::new(Ranking::LessFirst, 3, vec![]),
         };
         let best_bids = book.best_bids();
         assert_eq!(best_bids, vec![
-            &ExchangeLevel::from_strs("test2", "99", "10"),
-            &ExchangeLevel::from_strs("test1", "99", "5"),
+            &ExchangeLevel::from_strs("test2", "101", "10"),
+            &ExchangeLevel::from_strs("test1", "101", "5"),
             &ExchangeLevel::from_strs("test2", "100", "10"),
         ]);
     }

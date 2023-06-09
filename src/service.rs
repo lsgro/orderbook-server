@@ -31,9 +31,9 @@ impl BookSummaryService {
     pub async fn new(product: CurrencyPair) -> Self {
         let bitstamp_provider = make_bitstamp_provider(&product);
         let binance_provider = make_binance_provider(&product);
-        let connected_bitstamp_provider = bitstamp_provider.connect().await.expect("Connection to Bitstamp failed");
-        let connected_binance_provider = binance_provider.connect().await.expect("Connection to Binance failed");
-        let book_update_stream= Box::pin(select(connected_bitstamp_provider, connected_binance_provider));
+        let conn_bitstamp_provider = bitstamp_provider.connect().await.expect("Connection to Bitstamp failed");
+        let conn_binance_provider = binance_provider.connect().await.expect("Connection to Binance failed");
+        let book_update_stream= Box::pin(select(conn_bitstamp_provider, conn_binance_provider));
         let aggregate_book = AggregateBook::new(NUM_LEVELS);
         Self { book_update_stream, aggregate_book }
     }

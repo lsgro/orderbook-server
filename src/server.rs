@@ -44,19 +44,19 @@ impl OrderbookAggregator for ProtobufOrderbookServer {
 
     async fn book_summary(&self, req: Request<Empty>) -> SummaryResult {
         info!("OrderbookServer::book_summary");
-        info!("\tclient connected from: {:?}", req.remote_addr());
+        info!("Client connected from: {:?}", req.remote_addr());
 
         let (tx, rx) = mpsc::channel(128);
-        let service = BookSummaryService::new(self.product).await;
-        let mut stream: Pin<Box<dyn Stream<Item = Summary> + Send>> = service.into();
+        let mut service = BookSummaryService::new(self.product).await;
 
         tokio::spawn(async move {
-            while let Some(item) = stream.next().await {
+            while let Some(item) = service.next().await {
                 if let Err(_) = tx.send(Result::<Summary, Status>::Ok(item)).await {
                     break;
                 }
             }
-            info!("\tclient disconnected");
+            info!("Client disconnected");
+            service.disconnect().await;
         });
 
         let output_stream = ReceiverStream::new(rx);

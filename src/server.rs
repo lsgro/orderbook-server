@@ -1,3 +1,5 @@
+use log::{LevelFilter, info};
+use simple_logger::SimpleLogger;
 use futures::Stream;
 use std::pin::Pin;
 use std::net::{SocketAddr, IpAddr, Ipv6Addr};
@@ -41,28 +43,20 @@ impl OrderbookAggregator for ProtobufOrderbookServer {
     type BookSummaryStream = ResponseStream;
 
     async fn book_summary(&self, req: Request<Empty>) -> SummaryResult {
-        println!("OrderbookServer::book_summary");
-        println!("\tclient connected from: {:?}", req.remote_addr());
+        info!("OrderbookServer::book_summary");
+        info!("\tclient connected from: {:?}", req.remote_addr());
 
-        // spawn and channel are required if you want handle "disconnect" functionality
-        // the `out_stream` will not be polled after client disconnect
         let (tx, rx) = mpsc::channel(128);
         let service = BookSummaryService::new(self.product).await;
         let mut stream: Pin<Box<dyn Stream<Item = Summary> + Send>> = service.into();
 
         tokio::spawn(async move {
             while let Some(item) = stream.next().await {
-                match tx.send(Result::<_, Status>::Ok(item)).await {
-                    Ok(_) => {
-                        // item (server response) was queued to be send to client
-                    }
-                    Err(_item) => {
-                        // output_stream was build from rx and both are dropped
-                        break;
-                    }
+                if let Err(_) = tx.send(Result::<Summary, Status>::Ok(item)).await {
+                    break;
                 }
             }
-            println!("\tclient disconnected");
+            info!("\tclient disconnected");
         });
 
         let output_stream = ReceiverStream::new(rx);
@@ -74,6 +68,7 @@ impl OrderbookAggregator for ProtobufOrderbookServer {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
     let server = ProtobufOrderbookServer::new(CurrencyPair { main: "ETH", counter: "BTC" });
     server.serve(50051).await
 }

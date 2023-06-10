@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use crate::core::*;
 
+
 #[derive(PartialEq, Debug)]
 enum Ranking {
     LessFirst,
@@ -34,12 +35,8 @@ impl AggregateBook {
     }
 
     pub fn update(&mut self, book_update: BookUpdate) {
-        self.bids.replace_levels_by_exchange(
-            book_update.bids,
-            book_update.exchange);
-        self.asks.replace_levels_by_exchange(
-            book_update.asks,
-            book_update.exchange);
+        self.bids.update_side(book_update.bids);
+        self.asks.update_side(book_update.asks);
     }
 }
 
@@ -66,14 +63,16 @@ impl AggregateBookSide {
         let mut prev_price: Option<Decimal> = None;
         for level in &self.data {
             if let Some(a_price) = prev_price {
-                assert!(self.is_before(a_price, level.price))
+                assert!(
+                    self.is_before(a_price, level.price),
+                    "Level price {} is not before {}", a_price, level.price
+                );
             } else {
                 prev_price = Some(level.price);
             }
         }
     }
 
-    #[cfg(test)]
     fn len(&self) -> usize {
         self.data.len()
     }
@@ -95,21 +94,6 @@ impl AggregateBookSide {
         result
     }
 
-    fn replace_levels_by_exchange(
-        &mut self,
-        side_update: Vec<ExchangeLevel>,
-        exchange: &'static str) {
-        self.reset_levels_by_exchange(exchange);
-        self.update_side(side_update);
-    }
-
-    fn reset_levels_by_exchange(&mut self, exchange: &'static str) {
-        for level in self.data.iter_mut() {
-            level.exchange_levels.remove(exchange);
-        }
-        self.data.retain(|level| !level.exchange_levels.is_empty())
-    }
-
     fn is_before(&self, price_a: Decimal, price_b: Decimal) -> bool {
         match self.ordering {
             Ranking::LessFirst => price_a < price_b,
@@ -118,40 +102,66 @@ impl AggregateBookSide {
     }
 
     fn update_side(&mut self, side_update: Vec<ExchangeLevel>) {
-        if self.data.is_empty() {
-            self.data.extend(side_update.into_iter().map(AggregateLevel::from_level));
-        } else if !side_update.is_empty() {
-            let mut current_index: usize = 0;
-            let mut prev_update_price: Decimal = side_update[0].price;
-            let mut last_price: Decimal = self.data[self.data.len() - 1].price;
-            for level_update in side_update {
-                assert!(!self.is_before(level_update.price, prev_update_price), "Non monotone update levels");
-                prev_update_price = level_update.price;
-                while current_index < self.max_levels {
-                    if self.data.len() >= self.max_levels {
-                        if self.is_before(last_price, level_update.price) {
-                            return;
-                        }
-                    }
-                    if current_index == self.data.len() && current_index < self.max_levels {
-                        last_price = level_update.price;
-                        self.data.push(AggregateLevel::from_level(level_update));
-                        current_index += 1;
+        let mut update_strategy = AggregateBookSideUpdateStrategy::new();
+        for level_update in side_update {
+            if !update_strategy.apply(self, level_update) {
+                break;
+            }
+        }
+        self.data.retain(|level| !level.exchange_levels.is_empty());
+    }
+}
+
+struct AggregateBookSideUpdateStrategy {
+    current_index: usize,
+    prev_update_price: Option<Decimal>,
+}
+
+impl AggregateBookSideUpdateStrategy {
+    fn new() -> Self {
+        Self {
+            current_index: 0,
+            prev_update_price: None,
+        }
+    }
+
+    fn apply(&mut self, side: &mut AggregateBookSide, level_update: ExchangeLevel) -> bool {
+        // Check that update levels are sorted
+        if let Some(a_price) = self.prev_update_price {
+            assert!(
+                !side.is_before(level_update.price, a_price),
+                "Update price {} is before {}", level_update.price, a_price
+            );
+        }
+        self.prev_update_price = Some(level_update.price);
+
+        if self.current_index == side.len() {
+            if side.len() >= side.max_levels {
+                false
+            } else {
+                side.data.push(AggregateLevel::from_level(level_update));
+                self.current_index += 1;
+                true
+            }
+        } else {
+            let price = side[self.current_index].price;
+            if side.is_before(level_update.price, price) {
+                side.data.insert(self.current_index, AggregateLevel::from_level(level_update));
+                self.current_index += 1;
+                true
+            } else if level_update.price == price {
+                side.data[self.current_index].update(level_update);
+                self.current_index += 1;
+                true
+            } else {
+                while side.is_before(side[self.current_index].price, level_update.price) {
+                    side.data[self.current_index].remove(level_update.exchange);
+                    self.current_index += 1;
+                    if self.current_index == side.len() {
                         break;
-                    } else if self.is_before(level_update.price, self.data[current_index].price) {
-                        self.data.insert(current_index, AggregateLevel::from_level(level_update));
-                        current_index += 1;
-                        break;
-                    } else if level_update.price == self.data[current_index].price {
-                        self.data[current_index].update(level_update);
-                        current_index += 1;
-                        break;
-                    }
-                    current_index += 1;
-                    if current_index == self.max_levels {
-                        return;
                     }
                 }
+                self.apply(side, level_update)
             }
         }
     }
@@ -193,6 +203,10 @@ impl AggregateLevel {
     fn update(&mut self, level: ExchangeLevel) {
         assert_eq!(self.price, level.price);
         self.exchange_levels.insert(level.exchange, level);
+    }
+
+    fn remove(&mut self, exchange: &'static str) {
+        self.exchange_levels.remove(exchange);
     }
 
     #[cfg(test)]

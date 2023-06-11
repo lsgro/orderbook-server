@@ -1,5 +1,6 @@
 use log::info;
 use futures::prelude::*;
+use std::fmt;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio_tungstenite::{connect_async, WebSocketStream, MaybeTlsStream, tungstenite::protocol::Message};
@@ -15,6 +16,12 @@ pub struct BookUpdateProvider {
     ws_url: String,
     subscribe_msg: String,
     book_update_reader: Box<dyn BookUpdateReader + Send>,
+}
+
+impl fmt::Display for BookUpdateProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "BookUpdateProvider({})", self.ws_url)
+    }
 }
 
 impl BookUpdateProvider {

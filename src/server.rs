@@ -7,11 +7,13 @@ use std::str::FromStr;
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use tonic::{transport::Server, Request, Response, Status};
+use keyrock_eu_lsgro::binance::make_binance_provider;
+use keyrock_eu_lsgro::bitstamp::make_bitstamp_provider;
 
 use keyrock_eu_lsgro::orderbook::{Summary, Empty, orderbook_aggregator_server::{OrderbookAggregator, OrderbookAggregatorServer}};
 
 use keyrock_eu_lsgro::core::CurrencyPair;
-use keyrock_eu_lsgro::service::BookSummaryService;
+use keyrock_eu_lsgro::service::{BookSummaryService, BookUpdateStream};
 
 type ResponseStream = Pin<Box<dyn Stream<Item = Result<Summary, Status>> + Send>>;
 type SummaryResult = Result<Response<ResponseStream>, Status>;
@@ -47,7 +49,10 @@ impl OrderbookAggregator for ProtobufOrderbookServer {
         info!("Client connected from: {:?}", req.remote_addr());
 
         let (tx, rx) = mpsc::channel(128);
-        let mut service = BookSummaryService::new(self.product).await;
+        let binance_provider = make_binance_provider(&self.product);
+        let bitstamp_provider = make_bitstamp_provider(&self.product);
+        let book_update_stream = BookUpdateStream::new(vec![binance_provider, bitstamp_provider]).await;
+        let mut service: BookSummaryService = BookSummaryService::new(book_update_stream);
 
         tokio::spawn(async move {
             while let Some(item) = service.next().await {

@@ -5,8 +5,8 @@ use log::{LevelFilter, info};
 use simple_logger::SimpleLogger;
 use tokio_stream::StreamExt;
 
-use keyrock_eu_lsgro::orderbook::{orderbook_aggregator_client::OrderbookAggregatorClient, Empty};
-use keyrock_eu_lsgro::cli::ArgParser;
+use orderbook_server::orderbook::{orderbook_aggregator_client::OrderbookAggregatorClient, Empty};
+use orderbook_server::cli::ArgParser;
 
 
 const USAGE_MESSAGE: &'static str = "Usage: client <#messages> [port]";

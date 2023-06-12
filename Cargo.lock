@@ -676,24 +676,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "453ad9f582a441959e5f0d088b02ce04cfe8d51a8eaf077f12ac6d3e94164ca6"
 
 [[package]]
-name = "keyrock-eu-lsgro"
-version = "1.0.0"
-dependencies = [
- "futures",
- "log",
- "prost",
- "rust_decimal",
- "serde",
- "serde_json",
- "simple_logger",
- "tokio",
- "tokio-stream",
- "tokio-tungstenite",
- "tonic",
- "tonic-build",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -846,6 +828,24 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "orderbook-server"
+version = "1.0.0"
+dependencies = [
+ "futures",
+ "log",
+ "prost",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "simple_logger",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite",
+ "tonic",
+ "tonic-build",
 ]
 
 [[package]]

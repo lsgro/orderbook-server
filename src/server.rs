@@ -9,13 +9,13 @@ use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use tonic::{transport::Server, Request, Response, Status};
 
-use keyrock_eu_lsgro::orderbook::{Summary, Empty, orderbook_aggregator_server::{OrderbookAggregator, OrderbookAggregatorServer}};
+use orderbook_server::orderbook::{Summary, Empty, orderbook_aggregator_server::{OrderbookAggregator, OrderbookAggregatorServer}};
 
-use keyrock_eu_lsgro::cli::ArgParser;
-use keyrock_eu_lsgro::exchange::{BookUpdateSource, BookUpdateStream};
-use keyrock_eu_lsgro::service::BookSummaryService;
-use keyrock_eu_lsgro::binance::BinanceBookUpdateSource;
-use keyrock_eu_lsgro::bitstamp::BitstampBookUpdateSource;
+use orderbook_server::cli::ArgParser;
+use orderbook_server::exchange::{BookUpdateSource, BookUpdateStream};
+use orderbook_server::service::BookSummaryService;
+use orderbook_server::binance::BinanceBookUpdateSource;
+use orderbook_server::bitstamp::BitstampBookUpdateSource;
 
 type ResponseStream = Pin<Box<dyn Stream<Item = Result<Summary, Status>> + Send>>;
 type SummaryResult = Result<Response<ResponseStream>, Status>;

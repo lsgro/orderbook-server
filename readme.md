@@ -1,5 +1,7 @@
-# Tech challenge for keyrock.eu
-_Luigi Sgro_ - [me@luigisgro.com](mailto:me@luigisgro.com)
+# Rust book aggregator server
+_Author_: _Luigi Sgro_
+
+_email_: [me@luigisgro.com](mailto:me@luigisgro.com)
 
 ## Requirements
 * [Rust/Cargo version 1.7.0](https://www.rust-lang.org/tools/install)
@@ -20,7 +22,7 @@ cargo build --bin server
 cargo build --bin client
 cargo doc --no-deps --document-private-items
 ```
-HTML documentation index is generated in `./target/doc/keyrock_eu_lsgro/index.html`.
+HTML documentation index is generated in `./target/doc/orderbook_server/index.html`.
 
 ## Run demo application
 * Run the server: `cargo run --bin server ETH-BTC`.

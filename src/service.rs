@@ -1,7 +1,7 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use futures::stream::{Stream, select, Select};
-use futures::{Future, future::join_all};
+use futures::Future;
 use rust_decimal::prelude::ToPrimitive;
 
 use crate::core::*;
@@ -113,14 +113,14 @@ pub enum BookUpdateStream {
 }
 
 impl BookUpdateStream {
-    pub async fn new(exchange_providers: Vec<BookUpdateProvider>) -> Self {
+    pub async fn new(exchange_providers: &Vec<Box<dyn BookUpdateProvider>>) -> Self {
         assert!(!exchange_providers.is_empty());
-        let connected_providers: Vec<ConnectedBookUpdateProvider> = join_all(exchange_providers.into_iter().map(
-            |p| async {
-                let provider_name = p.to_string();
-                p.connect().await.expect(&format!("Connection error for {}", provider_name))
-            }
-        )).await;
+        let mut connected_providers: Vec<ConnectedBookUpdateProvider> = vec![];
+        for p in exchange_providers {
+            let provider_name = p.name();
+            let c = p.make_connection().await.expect(&format!("Connection error for {}", provider_name));
+            connected_providers.push(c);
+        }
         if connected_providers.len() > 1 {
             let mut wrapped_providers = connected_providers.into_iter().map(
                 |p| BookUpdateStream::ExchangeStream(Box::pin(p)));

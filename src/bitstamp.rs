@@ -64,13 +64,37 @@ impl BookUpdateReader for BitstampBookUpdateReader {
     }
 }
 
-pub fn make_bitstamp_provider(product: &CurrencyPair) -> BookUpdateProvider {
-    let product_code = product.to_string().to_lowercase();
-    let channel_code = format!("order_book_{}", product_code);
-    let ws_url = String::from(BITSTAMP_WS_URL);
-    let subscribe_msg = format!(r#"{{"event": "bts:subscribe","data":{{"channel":"{}"}}}}"#, channel_code);
-    let book_update_reader = Box::new(BitstampBookUpdateReader);
-    BookUpdateProvider::new(ws_url, subscribe_msg, book_update_reader)
+pub struct BitstampBookUpdateProvider {
+    ws_url: String,
+    subscribe_msg: String,
+}
+
+impl BitstampBookUpdateProvider {
+    pub fn new(product: &CurrencyPair) -> Self {
+        let product_code = product.to_string().to_lowercase();
+        let channel_code = format!("order_book_{}", product_code);
+        let ws_url = String::from(BITSTAMP_WS_URL);
+        let subscribe_msg = format!(r#"{{"event": "bts:subscribe","data":{{"channel":"{}"}}}}"#, channel_code);
+        Self { ws_url, subscribe_msg }
+    }
+}
+
+impl BookUpdateProvider for BitstampBookUpdateProvider {
+    fn ws_url(&self) -> String {
+        self.ws_url.clone()
+    }
+
+    fn subscribe_message(&self) -> String {
+        self.subscribe_msg.clone()
+    }
+
+    fn make_book_update_reader(&self) ->  Box<dyn BookUpdateReader> {
+        Box::new(BitstampBookUpdateReader)
+    }
+
+    fn name(&self) -> &'static str {
+        BITSTAMP_CODE
+    }
 }
 
 

@@ -7,25 +7,26 @@ use std::str::FromStr;
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use tonic::{transport::Server, Request, Response, Status};
-use keyrock_eu_lsgro::binance::make_binance_provider;
-use keyrock_eu_lsgro::bitstamp::make_bitstamp_provider;
 
 use keyrock_eu_lsgro::orderbook::{Summary, Empty, orderbook_aggregator_server::{OrderbookAggregator, OrderbookAggregatorServer}};
 
 use keyrock_eu_lsgro::core::CurrencyPair;
+use keyrock_eu_lsgro::exchange::BookUpdateProvider;
 use keyrock_eu_lsgro::service::{BookSummaryService, BookUpdateStream};
+use keyrock_eu_lsgro::binance::BinanceBookUpdateProvider;
+use keyrock_eu_lsgro::bitstamp::BitstampBookUpdateProvider;
 
 type ResponseStream = Pin<Box<dyn Stream<Item = Result<Summary, Status>> + Send>>;
 type SummaryResult = Result<Response<ResponseStream>, Status>;
 
 
 pub struct ProtobufOrderbookServer {
-    product: CurrencyPair,
+    providers: Vec<Box<dyn BookUpdateProvider>>,
 }
 
 impl ProtobufOrderbookServer {
-    pub fn new(product: CurrencyPair) -> Self {
-        Self { product }
+    pub fn new(providers: Vec<Box<dyn BookUpdateProvider>>) -> Self {
+        Self { providers }
     }
 
     pub async fn serve(self, port: u16) -> Result<(), Box<dyn std::error::Error>> {
@@ -49,9 +50,7 @@ impl OrderbookAggregator for ProtobufOrderbookServer {
         info!("Client connected from: {:?}", req.remote_addr());
 
         let (tx, rx) = mpsc::channel(128);
-        let binance_provider = make_binance_provider(&self.product);
-        let bitstamp_provider = make_bitstamp_provider(&self.product);
-        let book_update_stream = BookUpdateStream::new(vec![binance_provider, bitstamp_provider]).await;
+        let book_update_stream = BookUpdateStream::new(&self.providers).await;
         let mut service: BookSummaryService = BookSummaryService::new(book_update_stream);
 
         tokio::spawn(async move {
@@ -74,6 +73,13 @@ impl OrderbookAggregator for ProtobufOrderbookServer {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
-    let server = ProtobufOrderbookServer::new(CurrencyPair { main: "ETH", counter: "BTC" });
+    let product = CurrencyPair { main: "ETH", counter: "BTC" };
+    let binance_provider = BinanceBookUpdateProvider::new(&product);
+    let bitstamp_provider = BitstampBookUpdateProvider::new(&product);
+    let providers: Vec<Box<dyn BookUpdateProvider>> = vec![
+        Box::new(binance_provider),
+        Box::new(bitstamp_provider)
+    ];
+    let server = ProtobufOrderbookServer::new(providers);
     server.serve(50051).await
 }

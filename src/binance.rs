@@ -57,13 +57,37 @@ impl BookUpdateReader for BinanceBookUpdateReader {
     }
 }
 
-pub fn make_binance_provider(product: &CurrencyPair) -> BookUpdateProvider {
-    let product_code = product.to_string().to_lowercase();
-    let channel_code = format!("{}@depth{}@100ms", product_code, NUM_LEVELS);
-    let ws_url = format!("{}/{}", BINANCE_WS_URL, channel_code);
-    let subscribe_msg = format!(r#"{{"method":"SUBSCRIBE","params":["{}"],"id":10}}"#, channel_code);
-    let book_update_reader = Box::new(BinanceBookUpdateReader);
-    BookUpdateProvider::new(ws_url, subscribe_msg, book_update_reader)
+pub struct BinanceBookUpdateProvider {
+    ws_url: String,
+    subscribe_msg: String,
+}
+
+impl BinanceBookUpdateProvider {
+    pub fn new(product: &CurrencyPair) -> Self {
+        let product_code = product.to_string().to_lowercase();
+        let channel_code = format!("{}@depth{}@100ms", product_code, NUM_LEVELS);
+        let ws_url = format!("{}/{}", BINANCE_WS_URL, channel_code);
+        let subscribe_msg = format!(r#"{{"method":"SUBSCRIBE","params":["{}"],"id":10}}"#, channel_code);
+        Self { ws_url, subscribe_msg }
+    }
+}
+
+impl BookUpdateProvider for BinanceBookUpdateProvider {
+    fn ws_url(&self) -> String {
+        self.ws_url.clone()
+    }
+
+    fn subscribe_message(&self) -> String {
+        self.subscribe_msg.clone()
+    }
+
+    fn make_book_update_reader(&self) ->  Box<dyn BookUpdateReader> {
+        Box::new(BinanceBookUpdateReader)
+    }
+
+    fn name(&self) -> &'static str {
+        BINANCE_CODE
+    }
 }
 
 

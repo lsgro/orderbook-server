@@ -1,6 +1,5 @@
 use log::info;
 use futures::prelude::*;
-use std::fmt;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio_tungstenite::{connect_async, WebSocketStream, MaybeTlsStream, tungstenite::protocol::Message};
@@ -8,59 +7,52 @@ use tokio_tungstenite::{connect_async, WebSocketStream, MaybeTlsStream, tungsten
 use crate::core::*;
 
 
-pub trait BookUpdateReader {
+pub trait BookUpdateReader: Send + Sync {
     fn read_book_update(&self, value: String) -> Option<BookUpdate>;
 }
 
-pub struct BookUpdateProvider {
-    ws_url: String,
-    subscribe_msg: String,
-    book_update_reader: Box<dyn BookUpdateReader + Send>,
-}
+pub trait BookUpdateProvider: Send + Sync {
+    fn ws_url(&self) -> String;
 
-impl fmt::Display for BookUpdateProvider {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "BookUpdateProvider({})", self.ws_url)
-    }
-}
+    fn subscribe_message(&self) -> String;
 
-impl BookUpdateProvider {
-    pub fn new(
-        ws_url: String,
-        subscribe_msg: String,
-        book_update_reader: Box<dyn BookUpdateReader + Send>
-    ) -> Self {
-        BookUpdateProvider{ ws_url, subscribe_msg, book_update_reader }
-    }
+    fn make_book_update_reader(&self) -> Box<dyn BookUpdateReader>;
 
-    pub async fn connect(self) -> Result<ConnectedBookUpdateProvider, ProviderError> {
-        info!("Connecting to '{}'.", &self.ws_url);
-        match connect_async(&self.ws_url).await {
-            Ok((mut ws, _)) => {
-                info!("Subscription '{}'.", &self.subscribe_msg);
-                match ws.send(Message::Text(self.subscribe_msg.clone())).await {
-                    Ok(_) => {
-                        info!("Subscription '{}' succeeded.", &self.subscribe_msg);
-                        Ok(ConnectedBookUpdateProvider{
-                            ws_url: self.ws_url,
-                            ws_stream: Box::pin(ws),
-                            book_update_reader: self.book_update_reader,
-                        })
-                    },
-                    _ => Err(ProviderError::Io)
+    fn name(&self) -> &'static str;
+
+    fn make_connection(&self) -> Pin<Box<dyn Future<Output = Result<ConnectedBookUpdateProvider, ProviderError>> + Send + '_>> {
+        let ws_url = self.ws_url();
+        info!("Connecting to '{}'.", &ws_url);
+        Box::pin(async move {
+            match connect_async(ws_url.clone()).await {
+                Ok((mut ws, _)) => {
+                    let subscribe_msg = self.subscribe_message();
+                    info!("Subscription '{}'.", &subscribe_msg);
+                    match ws.send(Message::Text(subscribe_msg.clone())).await {
+                        Ok(_) => {
+                            info!("Subscription '{}' succeeded.", &subscribe_msg);
+                            let book_update_reader = self.make_book_update_reader();
+                            Ok(ConnectedBookUpdateProvider{
+                                ws_url: ws_url.clone(),
+                                ws_stream: Box::pin(ws),
+                                book_update_reader: book_update_reader,
+                            })
+                        },
+                        _ => Err(ProviderError::Io)
+                    }
+                },
+                _ => {
+                    Err(ProviderError::Io)
                 }
-            },
-            _ => {
-                Err(ProviderError::Io)
             }
-        }
+        })
     }
 }
 
 pub struct ConnectedBookUpdateProvider {
     ws_url: String,
     ws_stream: Pin<Box<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>>,
-    book_update_reader: Box<dyn BookUpdateReader + Send>,
+    book_update_reader: Box<dyn BookUpdateReader>,
 }
 
 impl ConnectedBookUpdateProvider {

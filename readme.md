@@ -25,10 +25,11 @@ streaming snapshots of a consolidated book for each update received
 output a dump of the snapshot received. It stops and disconnects
 after a predefined number of snapshots is received.
 
-## Compile and generate documentation
+## Compile, test and generate documentation
 ```shell
 cargo build --bin server
 cargo build --bin client
+cargo test
 cargo doc --no-deps --document-private-items
 ```
 HTML documentation index is generated in `./target/doc/orderbook_server/index.html`.

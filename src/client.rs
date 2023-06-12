@@ -9,7 +9,7 @@ use orderbook_server::orderbook::{orderbook_aggregator_client::OrderbookAggregat
 use orderbook_server::cli::ArgParser;
 
 
-const USAGE_MESSAGE: &'static str = "Usage: client <#messages> [port]";
+const USAGE_MESSAGE: &str = "Usage: client <#messages> [port]";
 
 
 #[tokio::main]
@@ -19,8 +19,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let message_num = arg_parser.extract_message_num();
     let port = arg_parser.extract_port();
     let server_url = format!("http://[::1]:{}", port);
-    let mut client = OrderbookAggregatorClient::connect(server_url.clone()).await.expect(
-        &format!("Could not connect to server at {}", &server_url)
+    let mut client = OrderbookAggregatorClient::connect(server_url.clone()).await.unwrap_or_else(
+        |_| panic!("Could not connect to server at {}", &server_url)
     );
     info!("Streaming orderbook for {} messages", message_num);
     let stream = client

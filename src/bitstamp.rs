@@ -8,8 +8,8 @@ use crate::core::*;
 use crate::exchange::{BookUpdateReader, BookUpdateSource};
 
 
-const BITSTAMP_CODE: &'static str = "bitstamp";
-const BITSTAMP_WS_URL: &'static str = "wss://ws.bitstamp.net";
+const BITSTAMP_CODE: &str = "bitstamp";
+const BITSTAMP_WS_URL: &str = "wss://ws.bitstamp.net";
 
 
 /// Bitstamp implementation of the message parser [BookUpdateReader](BookUpdateReader).

@@ -21,7 +21,7 @@ type ResponseStream = Pin<Box<dyn Stream<Item = Result<Summary, Status>> + Send>
 type SummaryResult = Result<Response<ResponseStream>, Status>;
 
 
-const USAGE_MESSAGE: &'static str = "Usage: server <currency pair> [port]";
+const USAGE_MESSAGE: &str = "Usage: server <currency pair> [port]";
 
 
 /// Top level object representing a Profobuf RPC server.
@@ -84,7 +84,7 @@ impl OrderbookAggregator for ProtobufOrderbookServer {
 
         tokio::spawn(async move {
             while let Some(item) = service.next().await {
-                if let Err(_) = tx.send(Result::<Summary, Status>::Ok(item)).await {
+                if tx.send(Result::<Summary, Status>::Ok(item)).await.is_err() {
                     break;
                 }
             }

@@ -8,8 +8,8 @@ use crate::core::*;
 use crate::exchange::{BookUpdateReader, BookUpdateSource};
 
 
-const BINANCE_CODE: &'static str = "binance";
-const BINANCE_WS_URL: &'static str = "wss://stream.binance.com:443/ws";
+const BINANCE_CODE: &str = "binance";
+const BINANCE_WS_URL: &str = "wss://stream.binance.com:443/ws";
 
 
 /// Binance implementation of the message parser [BookUpdateReader](BookUpdateReader).

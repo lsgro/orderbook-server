@@ -68,13 +68,13 @@ pub trait BookUpdateSource: Send + Sync {
             let (mut ws, _) = connect_async(ws_url.clone()).await?;
             let subscribe_msg = self.subscribe_message();
             info!("Subscription '{}'.", &subscribe_msg);
-            let _ = ws.send(Message::Text(subscribe_msg.clone())).await?;
+            ws.send(Message::Text(subscribe_msg.clone())).await?;
             info!("Subscription '{}' succeeded.", &subscribe_msg);
             let book_update_reader = self.make_book_update_reader();
             Ok(ConnectedBookUpdateSource{
                 ws_url: ws_url.clone(),
                 ws_stream: Box::pin(ws),
-                book_update_reader: book_update_reader,
+                book_update_reader,
             })
         })
     }
@@ -154,7 +154,7 @@ impl BookUpdateStream {
         let mut connected_sources: Vec<ConnectedBookUpdateSource> = vec![];
         for p in exchange_sources {
             let source_name = p.exchange_code();
-            let c = p.make_connection().await.expect(&format!("Connection error for {}", source_name));
+            let c = p.make_connection().await.unwrap_or_else(|_| panic!("Connection error for {}", source_name));
             connected_sources.push(c);
         }
         if connected_sources.len() > 1 {

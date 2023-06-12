@@ -6,7 +6,7 @@ use crate::core::CurrencyPair;
 
 const DEFAULT_PORT: u16 = 50000;
 const DEFAULT_MESSAGE_NUM: usize = 500;
-const CURRENCY_PAIR_MESSAGE: &'static str = "ERROR: argument <currency pair> must have shape cur1-cur2 (e.g. ETH-BTC)";
+const CURRENCY_PAIR_MESSAGE: &str = "ERROR: argument <currency pair> must have shape cur1-cur2 (e.g. ETH-BTC)";
 
 
 /// Utility class to help with command line option parsing.

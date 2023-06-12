@@ -1,16 +1,14 @@
 use log::{LevelFilter, info};
 use simple_logger::SimpleLogger;
 use futures::Stream;
-use std::pin::Pin;
-use std::net::{SocketAddr, IpAddr, Ipv6Addr};
-use std::str::FromStr;
+use std::{env, pin::Pin, net, str::FromStr};
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use tonic::{transport::Server, Request, Response, Status};
 
 use keyrock_eu_lsgro::orderbook::{Summary, Empty, orderbook_aggregator_server::{OrderbookAggregator, OrderbookAggregatorServer}};
 
-use keyrock_eu_lsgro::core::CurrencyPair;
+use keyrock_eu_lsgro::cli::ArgParser;
 use keyrock_eu_lsgro::exchange::BookUpdateProvider;
 use keyrock_eu_lsgro::service::{BookSummaryService, BookUpdateStream};
 use keyrock_eu_lsgro::binance::BinanceBookUpdateProvider;
@@ -19,6 +17,8 @@ use keyrock_eu_lsgro::bitstamp::BitstampBookUpdateProvider;
 type ResponseStream = Pin<Box<dyn Stream<Item = Result<Summary, Status>> + Send>>;
 type SummaryResult = Result<Response<ResponseStream>, Status>;
 
+
+const USAGE_MESSAGE: &'static str = "Usage: server <currency pair> [port]";
 
 pub struct ProtobufOrderbookServer {
     providers: Vec<Box<dyn BookUpdateProvider>>,
@@ -30,7 +30,10 @@ impl ProtobufOrderbookServer {
     }
 
     pub async fn serve(self, port: u16) -> Result<(), Box<dyn std::error::Error>> {
-        let our_address = SocketAddr::new(IpAddr::V6(Ipv6Addr::from_str("::1").unwrap()), port);
+        let our_address = net::SocketAddr::new(
+            net::IpAddr::V6(net::Ipv6Addr::from_str("::1").unwrap()),
+            port
+        );
         Server::builder()
             .add_service(OrderbookAggregatorServer::new(self))
             .serve(our_address)
@@ -73,7 +76,9 @@ impl OrderbookAggregator for ProtobufOrderbookServer {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
-    let product = CurrencyPair { main: "ETH", counter: "BTC" };
+    let mut arg_parser = ArgParser::new(env::args(), USAGE_MESSAGE);
+    let product = arg_parser.extract_currency_pair();
+    let port = arg_parser.extract_port();
     let binance_provider = BinanceBookUpdateProvider::new(&product);
     let bitstamp_provider = BitstampBookUpdateProvider::new(&product);
     let providers: Vec<Box<dyn BookUpdateProvider>> = vec![
@@ -81,5 +86,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Box::new(bitstamp_provider)
     ];
     let server = ProtobufOrderbookServer::new(providers);
-    server.serve(50051).await
+    server.serve(port).await
 }

@@ -11,10 +11,10 @@ pub enum Side {
     Sell,
 }
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct CurrencyPair {
-    pub main: &'static str,
-    pub counter: &'static str,
+    pub main: String,
+    pub counter: String,
 }
 
 impl Display for CurrencyPair {

@@ -1,12 +1,11 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use futures::stream::{Stream, select, Select};
-use futures::Future;
+use futures::stream::Stream;
 use rust_decimal::prelude::ToPrimitive;
 
 use crate::core::*;
 use crate::aggregator::AggregateBook;
-use crate::exchange::{BookUpdateProvider, ConnectedBookUpdateProvider};
+use crate::exchange::BookUpdateStream;
 
 use crate::orderbook::{Summary, Level};
 
@@ -101,65 +100,3 @@ impl Stream for BookSummaryService {
     }
 }
 
-/// Structure containing multiple exchange data providers, merged together with
-/// (future::stream::Select)[future::stream::Select].
-/// Since this structure can only merge two streams at one time, in order to use from 1 to n
-/// streams, a recursive structure is used.
-/// Maintaining the source (ConnectedBookUpdateProvider)[ConnectedBookUpdateProvider] makes it
-/// possible to disconnect from the exchanges.
-pub enum BookUpdateStream {
-    ExchangeStream(Pin<Box<ConnectedBookUpdateProvider>>),
-    CompositeStream(Pin<Box<Select<BookUpdateStream, BookUpdateStream>>>)
-}
-
-impl BookUpdateStream {
-    pub async fn new(exchange_providers: &Vec<Box<dyn BookUpdateProvider>>) -> Self {
-        assert!(!exchange_providers.is_empty());
-        let mut connected_providers: Vec<ConnectedBookUpdateProvider> = vec![];
-        for p in exchange_providers {
-            let provider_name = p.name();
-            let c = p.make_connection().await.expect(&format!("Connection error for {}", provider_name));
-            connected_providers.push(c);
-        }
-        if connected_providers.len() > 1 {
-            let mut wrapped_providers = connected_providers.into_iter().map(
-                |p| BookUpdateStream::ExchangeStream(Box::pin(p)));
-            let w1 = wrapped_providers.next().unwrap();
-            let w2 = wrapped_providers.next().unwrap();
-            let acc = BookUpdateStream::CompositeStream(Box::pin(select(w1, w2)));
-            wrapped_providers.fold(
-                acc,
-                |c, w| BookUpdateStream::CompositeStream(Box::pin(select(c, w))))
-        } else {
-            BookUpdateStream::ExchangeStream(Box::pin(connected_providers.into_iter().next().unwrap()))
-        }
-    }
-
-    fn disconnect(self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        Box::pin(async move {
-            match self {
-                Self::ExchangeStream(p) => {
-                    let _ = Pin::into_inner(p).disconnect().await;
-                },
-                Self::CompositeStream(s) => {
-                    let (s1, s2) = Pin::into_inner(s).into_inner();
-                    s1.disconnect().await;
-                    s2.disconnect().await;
-                }
-            };
-        })
-    }
-}
-
-impl Stream for BookUpdateStream {
-    type Item = BookUpdate;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.get_mut() {
-            Self::ExchangeStream(e) =>
-                e.as_mut().poll_next(cx),
-            Self::CompositeStream(c) =>
-                c.as_mut().poll_next(cx)
-        }
-    }
-}

@@ -3,7 +3,7 @@ use rust_decimal::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::core::*;
-use crate::exchange::{BookUpdateReader, BookUpdateProvider};
+use crate::exchange::{BookUpdateReader, BookUpdateSource};
 
 
 const BITSTAMP_CODE: &'static str = "bitstamp";
@@ -64,12 +64,12 @@ impl BookUpdateReader for BitstampBookUpdateReader {
     }
 }
 
-pub struct BitstampBookUpdateProvider {
+pub struct BitstampBookUpdateSource {
     ws_url: String,
     subscribe_msg: String,
 }
 
-impl BitstampBookUpdateProvider {
+impl BitstampBookUpdateSource {
     pub fn new(product: &CurrencyPair) -> Self {
         let product_code = product.to_string().to_lowercase();
         let channel_code = format!("order_book_{}", product_code);
@@ -79,7 +79,7 @@ impl BitstampBookUpdateProvider {
     }
 }
 
-impl BookUpdateProvider for BitstampBookUpdateProvider {
+impl BookUpdateSource for BitstampBookUpdateSource {
     fn ws_url(&self) -> String {
         self.ws_url.clone()
     }

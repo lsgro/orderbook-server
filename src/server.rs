@@ -9,10 +9,10 @@ use tonic::{transport::Server, Request, Response, Status};
 use keyrock_eu_lsgro::orderbook::{Summary, Empty, orderbook_aggregator_server::{OrderbookAggregator, OrderbookAggregatorServer}};
 
 use keyrock_eu_lsgro::cli::ArgParser;
-use keyrock_eu_lsgro::exchange::BookUpdateProvider;
-use keyrock_eu_lsgro::service::{BookSummaryService, BookUpdateStream};
-use keyrock_eu_lsgro::binance::BinanceBookUpdateProvider;
-use keyrock_eu_lsgro::bitstamp::BitstampBookUpdateProvider;
+use keyrock_eu_lsgro::exchange::{BookUpdateSource, BookUpdateStream};
+use keyrock_eu_lsgro::service::BookSummaryService;
+use keyrock_eu_lsgro::binance::BinanceBookUpdateSource;
+use keyrock_eu_lsgro::bitstamp::BitstampBookUpdateSource;
 
 type ResponseStream = Pin<Box<dyn Stream<Item = Result<Summary, Status>> + Send>>;
 type SummaryResult = Result<Response<ResponseStream>, Status>;
@@ -21,12 +21,12 @@ type SummaryResult = Result<Response<ResponseStream>, Status>;
 const USAGE_MESSAGE: &'static str = "Usage: server <currency pair> [port]";
 
 pub struct ProtobufOrderbookServer {
-    providers: Vec<Box<dyn BookUpdateProvider>>,
+    sources: Vec<Box<dyn BookUpdateSource>>,
 }
 
 impl ProtobufOrderbookServer {
-    pub fn new(providers: Vec<Box<dyn BookUpdateProvider>>) -> Self {
-        Self { providers }
+    pub fn new(sources: Vec<Box<dyn BookUpdateSource>>) -> Self {
+        Self { sources }
     }
 
     pub async fn serve(self, port: u16) -> Result<(), Box<dyn std::error::Error>> {
@@ -53,7 +53,7 @@ impl OrderbookAggregator for ProtobufOrderbookServer {
         info!("Client connected from: {:?}", req.remote_addr());
 
         let (tx, rx) = mpsc::channel(128);
-        let book_update_stream = BookUpdateStream::new(&self.providers).await;
+        let book_update_stream = BookUpdateStream::new(&self.sources).await;
         let mut service: BookSummaryService = BookSummaryService::new(book_update_stream);
 
         tokio::spawn(async move {
@@ -79,12 +79,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut arg_parser = ArgParser::new(env::args(), USAGE_MESSAGE);
     let product = arg_parser.extract_currency_pair();
     let port = arg_parser.extract_port();
-    let binance_provider = BinanceBookUpdateProvider::new(&product);
-    let bitstamp_provider = BitstampBookUpdateProvider::new(&product);
-    let providers: Vec<Box<dyn BookUpdateProvider>> = vec![
-        Box::new(binance_provider),
-        Box::new(bitstamp_provider)
+    let binance_source = BinanceBookUpdateSource::new(&product);
+    let bitstamp_source = BitstampBookUpdateSource::new(&product);
+    let sources: Vec<Box<dyn BookUpdateSource>> = vec![
+        Box::new(binance_source),
+        Box::new(bitstamp_source)
     ];
-    let server = ProtobufOrderbookServer::new(providers);
+    let server = ProtobufOrderbookServer::new(sources);
     server.serve(port).await
 }

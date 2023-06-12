@@ -112,6 +112,14 @@ impl AggregateBookSide {
     }
 }
 
+impl Index<usize> for AggregateBookSide {
+    type Output = AggregateLevel;
+
+    fn index(&self, rhs: usize) -> &Self::Output {
+        &self.data[rhs]
+    }
+}
+
 struct AggregateBookSideUpdateStrategy {
     current_index: usize,
     prev_update_price: Option<Decimal>,
@@ -164,14 +172,6 @@ impl AggregateBookSideUpdateStrategy {
                 self.apply(side, level_update)
             }
         }
-    }
-}
-
-impl Index<usize> for AggregateBookSide {
-    type Output = AggregateLevel;
-
-    fn index(&self, rhs: usize) -> &Self::Output {
-        &self.data[rhs]
     }
 }
 

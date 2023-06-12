@@ -48,7 +48,7 @@ pub struct BookUpdate {
 }
 
 #[derive(Debug)]
-pub enum ProviderError {
+pub enum SourceError {
     Http,
     Io,
     Subscription,

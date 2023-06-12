@@ -3,6 +3,7 @@
 //! as Protobuf service.
 //! Check files `server.rs` and `client.rs` for a usage example.
 
+pub mod core;
 mod aggregator;
 pub mod exchange;
 pub mod binance;

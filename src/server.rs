@@ -1,3 +1,6 @@
+//! Protobuf RPC server for continuously updated snapshots of a trading book
+//! consolidated from multiple exchanges.
+
 use log::{LevelFilter, info};
 use simple_logger::SimpleLogger;
 use futures::Stream;
@@ -20,15 +23,37 @@ type SummaryResult = Result<Response<ResponseStream>, Status>;
 
 const USAGE_MESSAGE: &'static str = "Usage: server <currency pair> [port]";
 
+
+/// Top level object representing a Profobuf RPC server.
 pub struct ProtobufOrderbookServer {
+    /// The exchange adapters.
     sources: Vec<Box<dyn BookUpdateSource>>,
 }
 
 impl ProtobufOrderbookServer {
+    /// Create a new [ProtobufOrderbookServer](ProtobufOrderbookServer) object.
+    ///
+    /// # Arguments
+    ///
+    /// * `sources` - A [vector](Vec) of [BookUpdateSource](BookUpdateSource) objects, one
+    /// for each exchange.
+    ///
+    /// # Returns
+    ///
+    /// A [ProtobufOrderbookServer](ProtobufOrderbookServer) object.
     pub fn new(sources: Vec<Box<dyn BookUpdateSource>>) -> Self {
         Self { sources }
     }
 
+    /// Start the Protobuf RPC server on a port.
+    ///
+    /// # Arguments
+    ///
+    /// * `port` - The TCP port of the server.
+    ///
+    /// # Returns
+    ///
+    /// An empty [Result](Result).
     pub async fn serve(self, port: u16) -> Result<(), Box<dyn std::error::Error>> {
         let our_address = net::SocketAddr::new(
             net::IpAddr::V6(net::Ipv6Addr::from_str("::1").unwrap()),
@@ -43,6 +68,7 @@ impl ProtobufOrderbookServer {
     }
 }
 
+/// Implementation of the trait automatically generated from the file `proto/orderbook.proto`.
 #[tonic::async_trait]
 impl OrderbookAggregator for ProtobufOrderbookServer {
 

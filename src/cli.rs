@@ -1,3 +1,5 @@
+//! Utility to parse command line arguments for server and client programs.
+
 use std::env::Args;
 use crate::core::CurrencyPair;
 
@@ -7,6 +9,7 @@ const DEFAULT_MESSAGE_NUM: usize = 500;
 const CURRENCY_PAIR_MESSAGE: &'static str = "ERROR: argument <currency pair> must have shape cur1-cur2 (e.g. ETH-BTC)";
 
 
+/// Utility class to help with command line option parsing.
 pub struct ArgParser {
     args: Args,
     usage: &'static str,

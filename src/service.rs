@@ -1,3 +1,7 @@
+//! Top level service consuming a stream of trading book snapshots, consolidating
+//! them in an aggregate trading book and delivering snapshots of the
+//! aggregate book via an output (stream)[Stream].
+
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use futures::stream::Stream;
@@ -9,34 +13,32 @@ use crate::exchange::BookUpdateStream;
 
 use crate::orderbook::{Summary, Level};
 
-/// Conversion between internal exchange price level to protobuf type.
+/// Conversion from internal exchange price level to protobuf type.
 impl From<&ExchangeLevel> for Level {
     fn from(value: &ExchangeLevel) -> Self {
         Level {
-            exchange: value.exchange.to_string(),
+            exchange: value.exchange_code.to_string(),
             price: value.price.to_f64().unwrap(),
             amount: value.amount.to_f64().unwrap(),
         }
     }
 }
 
-/// Service connecting two Binance and Bitstamp to stream a consolidated book
+/// Service providing a stream a consolidated book snapshots, one for each update
+/// received from `book_update_stream`.
 pub struct BookSummaryService {
-    /// A merged stream of Binance and Bitmap trading book snapshots.
-    ///
-    /// # Returns
-    ///
-    /// A stream of [BookUpdate](BookUpdate) objects
+    /// An object representing a merged stream of trading book snapshots.
     book_update_stream: Pin<Box<BookUpdateStream>>,
+    /// The aggregate book where all the trading book snapshots are consolidated.
     aggregate_book: AggregateBook,
 }
 
 impl BookSummaryService {
-    /// Return a new instance of the service.
+    /// Create a new instance of the service.
     ///
     /// # Arguments
     ///
-    /// * `book_update_stream` - A stream of [BookUpdate](BookUpdate)
+    /// * `book_update_stream` - An object of type [BookUpdateStream](BookUpdateStream).
     ///
     /// # Returns
     ///
@@ -46,7 +48,7 @@ impl BookSummaryService {
         Self { book_update_stream: Box::pin(book_update_stream), aggregate_book }
     }
 
-    /// Disconnect from all exchanges, it consumes the service
+    /// Disconnect from all exchanges, it consumes the service.
     pub async fn disconnect(self) {
         let book_update_stream: Box<BookUpdateStream> = Pin::into_inner(self.book_update_stream);
         book_update_stream.disconnect().await;
@@ -56,11 +58,11 @@ impl BookSummaryService {
     ///
     /// # Arguments
     ///
-    /// * `aggregate_book` - A reference to an (aggregate book)[AggregateBook]
+    /// * `aggregate_book` - A reference to an [aggregate book](AggregateBook).
     ///
     /// # Returns
     ///
-    /// An instance of [BookSummaryService](BookSummaryService)
+    /// An instance of [Summary](Summary) object.
     fn make_summary(aggregate_book: &AggregateBook) -> Summary {
         let best_bids = aggregate_book.best_bids();
         let best_asks = aggregate_book.best_asks();
@@ -78,9 +80,11 @@ impl BookSummaryService {
     ///
     /// # Arguments
     ///
-    /// * `product` - An optional [BookUpdate](BookUpdate)
+    /// * `maybe_book_update` - An optional [BookUpdate](BookUpdate)
     ///
-    /// # Return
+    /// # Returns
+    ///
+    /// An instance of [Summary](Summary) object.
     fn update_and_make_summary(&mut self, maybe_book_update: Option<BookUpdate>) -> Summary {
         if let Some(book_update) = maybe_book_update {
             self.aggregate_book.update(book_update);
@@ -89,7 +93,7 @@ impl BookSummaryService {
     }
 }
 
-/// (Stream)[Stream] implementation for the service that outputs protobuf (Summary)[Summary] objects.
+/// [Stream](Stream) implementation for the service producing protobuf [Summary](Summary) objects.
 impl Stream for BookSummaryService {
     type Item = Summary;
 

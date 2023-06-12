@@ -1,3 +1,5 @@
+//! Bitstamp WebSocket exchange adapter for trading book snapshots.
+
 use log::debug;
 use rust_decimal::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -10,45 +12,7 @@ const BITSTAMP_CODE: &'static str = "bitstamp";
 const BITSTAMP_WS_URL: &'static str = "wss://ws.bitstamp.net";
 
 
-#[derive(Serialize, Deserialize, Debug)]
-struct BitstampPair((String, String));
-
-#[derive(Serialize, Deserialize, Debug)]
-struct BitstampBookUpdateData {
-    timestamp: String,
-    microtimestamp: String,
-    bids: Vec<BitstampPair>,
-    asks: Vec<BitstampPair>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct BitstampBookUpdate {
-    data: BitstampBookUpdateData,
-    channel: String,
-    event: String,
-}
-
-impl From<BitstampPair> for ExchangeLevel {
-    fn from(value: BitstampPair) -> Self {
-        let BitstampPair((price_str, amount_str)) = value;
-        Self {
-            exchange: BITSTAMP_CODE,
-            price: Decimal::from_str(&price_str).unwrap(),
-            amount: Decimal::from_str(&amount_str).unwrap(),
-        }
-    }
-}
-
-impl From<BitstampBookUpdate> for BookUpdate {
-    fn from(value: BitstampBookUpdate) -> Self {
-        Self {
-            exchange: BITSTAMP_CODE,
-            bids: value.data.bids.into_iter().take(NUM_LEVELS).map(|pair| pair.into()).collect(),
-            asks: value.data.asks.into_iter().take(NUM_LEVELS).map(|pair| pair.into()).collect(),
-        }
-    }
-}
-
+/// Bitstamp implementation of the message parser [BookUpdateReader](BookUpdateReader).
 struct BitstampBookUpdateReader;
 
 impl BookUpdateReader for BitstampBookUpdateReader {
@@ -64,6 +28,7 @@ impl BookUpdateReader for BitstampBookUpdateReader {
     }
 }
 
+/// Bitstamp implementation of the exchange adapter [BookUpdateSource](BookUpdateSource).
 pub struct BitstampBookUpdateSource {
     ws_url: String,
     subscribe_msg: String,
@@ -92,8 +57,47 @@ impl BookUpdateSource for BitstampBookUpdateSource {
         Box::new(BitstampBookUpdateReader)
     }
 
-    fn name(&self) -> &'static str {
+    fn exchange_code(&self) -> &'static str {
         BITSTAMP_CODE
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct BitstampPair((String, String));
+
+#[derive(Serialize, Deserialize, Debug)]
+struct BitstampBookUpdateData {
+    timestamp: String,
+    microtimestamp: String,
+    bids: Vec<BitstampPair>,
+    asks: Vec<BitstampPair>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct BitstampBookUpdate {
+    data: BitstampBookUpdateData,
+    channel: String,
+    event: String,
+}
+
+impl From<BitstampPair> for ExchangeLevel {
+    fn from(value: BitstampPair) -> Self {
+        let BitstampPair((price_str, amount_str)) = value;
+        Self {
+            exchange_code: BITSTAMP_CODE,
+            price: Decimal::from_str(&price_str).unwrap(),
+            amount: Decimal::from_str(&amount_str).unwrap(),
+        }
+    }
+}
+
+impl From<BitstampBookUpdate> for BookUpdate {
+    fn from(value: BitstampBookUpdate) -> Self {
+        Self {
+            exchange_code: BITSTAMP_CODE,
+            bids: value.data.bids.into_iter().take(NUM_LEVELS).map(|pair| pair.into()).collect(),
+            asks: value.data.asks.into_iter().take(NUM_LEVELS).map(|pair| pair.into()).collect(),
+        }
     }
 }
 
@@ -121,7 +125,7 @@ mod tests {
             event: "data".to_string(),
         };
         let exp_book_update = BookUpdate {
-            exchange: BITSTAMP_CODE,
+            exchange_code: BITSTAMP_CODE,
             bids: vec![
                 ExchangeLevel::from_strs(BITSTAMP_CODE, "0.123", "123.1"),
                 ExchangeLevel::from_strs(BITSTAMP_CODE, "0.321", "321.3"),

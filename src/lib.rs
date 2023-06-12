@@ -1,7 +1,6 @@
 //! Service listening to trading book updates from multiple
 //! sources, and publishing snapshots for a consolidate trading book
 //! as Protobuf service.
-//! Check files `server.rs` and `client.rs` for a usage example.
 
 pub mod core;
 mod aggregator;

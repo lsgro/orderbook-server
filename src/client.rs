@@ -1,8 +1,9 @@
+//! Example client for the Protobuf RPC server.
+
 use std::env;
 use log::{LevelFilter, info};
 use simple_logger::SimpleLogger;
 use tokio_stream::StreamExt;
-use tonic::transport::Channel;
 
 use keyrock_eu_lsgro::orderbook::{orderbook_aggregator_client::OrderbookAggregatorClient, Empty};
 use keyrock_eu_lsgro::cli::ArgParser;
@@ -10,19 +11,6 @@ use keyrock_eu_lsgro::cli::ArgParser;
 
 const USAGE_MESSAGE: &'static str = "Usage: client <#messages> [port]";
 
-
-async fn streaming_orderbook_aggregator(client: &mut OrderbookAggregatorClient<Channel>, num: usize) {
-    let stream = client
-        .book_summary(Empty {})
-        .await
-        .unwrap()
-        .into_inner();
-
-    let mut stream = stream.take(num);
-    while let Some(item) = stream.next().await {
-        info!("Received: {:?}", item.unwrap());
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,6 +23,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &format!("Could not connect to server at {}", &server_url)
     );
     info!("Streaming orderbook for {} messages", message_num);
-    streaming_orderbook_aggregator(&mut client, message_num).await;
+    let stream = client
+        .book_summary(Empty {})
+        .await
+        .unwrap()
+        .into_inner();
+    let mut finite_stream = stream.take(message_num);
+    while let Some(item) = finite_stream.next().await {
+        info!("{:?}", item.unwrap());
+    }
     Ok(())
 }

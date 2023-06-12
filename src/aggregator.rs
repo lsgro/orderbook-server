@@ -1,5 +1,6 @@
-//! Algorithm to maintain a consolidated trading book from
-//! data coming from multiple sources.
+//! Data structure for a consolidated trading book built from
+//! data coming from multiple sources, and an optimized algorithm to keep up-to-date
+//! the consolidated book.
 
 use std::cmp::{min};
 use std::ops::Index;
@@ -75,7 +76,7 @@ impl AggregateBook {
 }
 
 
-/// A side of the consolidate trading book (AggregateBook)[AggregateBook]
+/// A side of the consolidate trading book [AggregateBook](AggregateBook)
 #[derive(PartialEq, Debug)]
 struct AggregateBookSide {
     /// The way price levels are ordered within this side
@@ -87,13 +88,15 @@ struct AggregateBookSide {
 }
 
 impl AggregateBookSide {
-    /// Creates a new (AggregateBookSide)[AggregateBookSide] object
+    /// Creates a new [AggregateBookSide](AggregateBookSide) object
     ///
     /// # Arguments
     ///
     /// * `ordering` - How to order levels in this book side
+    ///
     /// * `max_levels` - Maximum number of price levels to maintain
-    /// * `data` - A (vector)[Vec] of actual price levels
+    ///
+    /// * `data` - A [vector](Vec) of actual price levels
     fn new(ordering: Ranking, max_levels: usize, data: Vec<AggregateLevel>) -> Self {
         let instance = Self {
             ordering,
@@ -125,12 +128,12 @@ impl AggregateBookSide {
     ///
     /// # Returns
     ///
-    /// An (usize)[usize].
+    /// An [usize](usize).
     fn len(&self) -> usize {
         self.data.len()
     }
 
-    /// Calculate the best `max_levels` price levels and return them in a (vector)[Vec].
+    /// Calculate the best `max_levels` price levels and return them in a [vector](Vec).
     /// When the same price is available on multiple exchanges, each quantity offered
     /// represents a level, and they are ordered by amount decreasing.
     ///
@@ -184,7 +187,7 @@ impl AggregateBookSide {
     }
 }
 
-/// Implementing indexed access for the (aggregate book side)[AggregateBookSide]
+/// Implementing indexed access for the [aggregate book side](AggregateBookSide)
 impl Index<usize> for AggregateBookSide {
     type Output = AggregateLevel;
 
@@ -193,8 +196,8 @@ impl Index<usize> for AggregateBookSide {
     }
 }
 
-/// The algorithm used to update an (aggregated book side)[AggregateBookSide]
-/// for each (exchange level update)[ExchangeLevel].
+/// The algorithm used to update an [aggregate book side](AggregateBookSide)
+/// for each [exchange level update](ExchangeLevel).
 /// It takes into account that the existing aggregate levels are ordered to
 /// optimize for speed.
 /// It checks that the exchange level updates are ordered, insuring that the
@@ -223,13 +226,14 @@ impl AggregateBookSideUpdateStrategy {
     ///
     /// # Arguments
     ///
-    /// * `side` - the side of the (aggregate book)[AggregateBook] being updated
+    /// * `side` - the side of the [aggregate book](AggregateBook) being updated
+    ///
     /// * `level_update` - a single price level update from an exchange
     ///
     /// # Returns
     ///
-    /// A (boolean)[bool] value: (false)[false] if the algorithm is completed,
-    /// (true)[true] otherwise.
+    /// A [boolean](bool) value: [false](false) if the algorithm is completed,
+    /// [true](true) otherwise.
     fn apply(&mut self, side: &mut AggregateBookSide, level_update: ExchangeLevel) -> bool {
         // Check that update levels are sorted
         if let Some(a_price) = self.prev_update_price {
@@ -260,7 +264,7 @@ impl AggregateBookSideUpdateStrategy {
                 true
             } else {
                 while side.is_before(side[self.current_index].price, level_update.price) {
-                    side.data[self.current_index].remove(level_update.exchange);
+                    side.data[self.current_index].remove(level_update.exchange_code);
                     self.current_index += 1;
                     if self.current_index == side.len() {
                         break;
@@ -278,12 +282,12 @@ impl AggregateBookSideUpdateStrategy {
 struct AggregateLevel {
     /// The price
     price: Decimal,
-    /// A map from the exchange name to the (price level)[ExchangeLevel]s.
+    /// A map from the exchange code to the [price level](ExchangeLevel)s.
     exchange_levels: HashMap<&'static str, ExchangeLevel>,
 }
 
 impl AggregateLevel {
-    /// Utility function to create an (aggregate level)[AggregateLevel]
+    /// Utility function to create an [aggregate level](AggregateLevel)
     /// from an exchange trading book update level.
     ///
     /// # Arguments
@@ -292,15 +296,15 @@ impl AggregateLevel {
     ///
     /// # Returns
     ///
-    /// An instance of (AggregateLevel)[AggregateLevel].
+    /// An instance of [AggregateLevel](AggregateLevel).
     fn from_level(level: ExchangeLevel) -> Self {
         Self {
             price: level.price,
-            exchange_levels: HashMap::from([(level.exchange, level)]),
+            exchange_levels: HashMap::from([(level.exchange_code, level)]),
         }
     }
 
-    /// An utility function to create an (aggregate level)[AggregateLevel]
+    /// An utility function to create an [aggregate level](AggregateLevel)
     /// from several exchange trading book update levels.
     #[cfg(test)]
     fn from_levels(levels: Vec<ExchangeLevel>) -> Self {
@@ -317,19 +321,19 @@ impl AggregateLevel {
     ///
     /// # Arguments
     ///
-    /// `level` - An exchange (price level)[ExchangeLevel].
+    /// `level` - An exchange [price level](ExchangeLevel).
     fn update(&mut self, level: ExchangeLevel) {
         assert_eq!(self.price, level.price);
-        self.exchange_levels.insert(level.exchange, level);
+        self.exchange_levels.insert(level.exchange_code, level);
     }
 
     /// Remove the price level from an exchange from the aggregate price level.
     ///
     /// # Arguments
     ///
-    /// `exchange` - The exchange name.
-    fn remove(&mut self, exchange: &'static str) {
-        self.exchange_levels.remove(exchange);
+    /// `exchange_code` - The exchange code.
+    fn remove(&mut self, exchange_code: &'static str) {
+        self.exchange_levels.remove(exchange_code);
     }
 
     /// Utility function calculating the total amount for a price from all the exchanges.
@@ -346,7 +350,7 @@ impl AggregateLevel {
     ///
     /// # Returns
     ///
-    /// A (vector)[Vec] of references to (exchange price level)[ExchangeLevel]s.
+    /// A [vector](Vec) of references to [exchange price level](ExchangeLevel)s.
     fn levels_by_amount(&self) -> Vec<&ExchangeLevel> {
         let mut levels: Vec<&ExchangeLevel> = self.exchange_levels.values().collect();
         levels.sort_by(|&a, &b| b.amount.cmp(&a.amount));
@@ -387,13 +391,13 @@ mod tests {
         assert_eq!(cons_level.total_amount(), Decimal::from_str("11").unwrap());
         let levels = cons_level.levels_by_amount();
         assert_eq!(levels[0].amount, Decimal::from_str("5").unwrap());
-        assert_eq!(levels[0].exchange, "test4");
+        assert_eq!(levels[0].exchange_code, "test4");
         assert_eq!(levels[1].amount, Decimal::from_str("3").unwrap());
-        assert_eq!(levels[1].exchange, "test1");
+        assert_eq!(levels[1].exchange_code, "test1");
         assert_eq!(levels[2].amount, Decimal::from_str("2").unwrap());
-        assert_eq!(levels[2].exchange, "test3");
+        assert_eq!(levels[2].exchange_code, "test3");
         assert_eq!(levels[3].amount, Decimal::from_str("1").unwrap());
-        assert_eq!(levels[3].exchange, "test2");
+        assert_eq!(levels[3].exchange_code, "test2");
     }
 
     #[test]
@@ -427,7 +431,7 @@ mod tests {
     fn test_empty_book() {
         let mut book = AggregateBook::new(3);
         let book_update = BookUpdate {
-            exchange: "test",
+            exchange_code: "test",
             bids: vec![
                 ExchangeLevel::from_strs("test", "99", "10"),
                 ExchangeLevel::from_strs("test", "98", "10"),
@@ -826,7 +830,7 @@ mod tests {
             ]),
         };
         let book_update1 = BookUpdate {
-            exchange: "test1",
+            exchange_code: "test1",
             bids: vec![
                 ExchangeLevel::from_strs("test1", "100", "10"),
                 ExchangeLevel::from_strs("test1", "99", "10"),
@@ -843,7 +847,7 @@ mod tests {
         };
         book.update(book_update1);
         let book_update2 = BookUpdate {
-            exchange: "test2",
+            exchange_code: "test2",
             bids: vec![
                 ExchangeLevel::from_strs("test2", "100", "20"),
                 ExchangeLevel::from_strs("test2", "97", "15"),
@@ -911,7 +915,7 @@ mod tests {
             ]),
         };
         let book_update = BookUpdate {
-            exchange: "test1",
+            exchange_code: "test1",
             bids: vec![
                 ExchangeLevel::from_strs("test1", "99", "10"), // <- wrong order
                 ExchangeLevel::from_strs("test1", "100", "10"),

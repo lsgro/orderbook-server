@@ -1,3 +1,5 @@
+//! Binance WebSocket exchange adapter for periodic trading book snapshots.
+
 use log::debug;
 use rust_decimal::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -10,38 +12,7 @@ const BINANCE_CODE: &'static str = "binance";
 const BINANCE_WS_URL: &'static str = "wss://stream.binance.com:443/ws";
 
 
-#[derive(Serialize, Deserialize, Debug)]
-struct BinancePair((String, String));
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-struct BinanceBookUpdate {
-    last_update_id: u64,
-    bids: Vec<BinancePair>,
-    asks: Vec<BinancePair>,
-}
-
-impl From<BinancePair> for ExchangeLevel {
-    fn from(value: BinancePair) -> Self {
-        let BinancePair((price_str, amount_str)) = value;
-        Self {
-            exchange: BINANCE_CODE,
-            price: Decimal::from_str(&price_str).unwrap(),
-            amount: Decimal::from_str(&amount_str).unwrap(),
-        }
-    }
-}
-
-impl From<BinanceBookUpdate> for BookUpdate {
-    fn from(value: BinanceBookUpdate) -> Self {
-        Self {
-            exchange: BINANCE_CODE,
-            bids: value.bids.into_iter().map(|pair| pair.into()).collect(),
-            asks: value.asks.into_iter().map(|pair| pair.into()).collect(),
-        }
-    }
-}
-
+/// Binance implementation of the message parser [BookUpdateReader](BookUpdateReader).
 struct BinanceBookUpdateReader;
 
 impl BookUpdateReader for BinanceBookUpdateReader {
@@ -57,6 +28,7 @@ impl BookUpdateReader for BinanceBookUpdateReader {
     }
 }
 
+/// Binance implementation of the exchange adapter [BookUpdateSource](BookUpdateSource).
 pub struct BinanceBookUpdateSource {
     ws_url: String,
     subscribe_msg: String,
@@ -85,8 +57,40 @@ impl BookUpdateSource for BinanceBookUpdateSource {
         Box::new(BinanceBookUpdateReader)
     }
 
-    fn name(&self) -> &'static str {
+    fn exchange_code(&self) -> &'static str {
         BINANCE_CODE
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct BinancePair((String, String));
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct BinanceBookUpdate {
+    last_update_id: u64,
+    bids: Vec<BinancePair>,
+    asks: Vec<BinancePair>,
+}
+
+impl From<BinancePair> for ExchangeLevel {
+    fn from(value: BinancePair) -> Self {
+        let BinancePair((price_str, amount_str)) = value;
+        Self {
+            exchange_code: BINANCE_CODE,
+            price: Decimal::from_str(&price_str).unwrap(),
+            amount: Decimal::from_str(&amount_str).unwrap(),
+        }
+    }
+}
+
+impl From<BinanceBookUpdate> for BookUpdate {
+    fn from(value: BinanceBookUpdate) -> Self {
+        Self {
+            exchange_code: BINANCE_CODE,
+            bids: value.bids.into_iter().map(|pair| pair.into()).collect(),
+            asks: value.asks.into_iter().map(|pair| pair.into()).collect(),
+        }
     }
 }
 
@@ -109,7 +113,7 @@ mod tests {
             ],
         };
         let exp_book_update = BookUpdate {
-            exchange: BINANCE_CODE,
+            exchange_code: BINANCE_CODE,
             bids: vec![
                 ExchangeLevel::from_strs(BINANCE_CODE, "0.123", "123.1"),
                 ExchangeLevel::from_strs(BINANCE_CODE, "0.321", "321.3"),

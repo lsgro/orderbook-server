@@ -1,7 +1,7 @@
 //! Common functionalities to create WebSocket exchange adapters and merging their
 //! [streams](Stream) of trading book snapshots.
 
-use log::info;
+use log::{info, error};
 use futures::prelude::*;
 use std::{pin::Pin, task::{Context, Poll}};
 use futures::stream::{Stream, select, Select};
@@ -107,7 +107,7 @@ impl ConnectedBookUpdateSource {
 ///
 /// * parsing the original message into a [BookUpdate](BookUpdate) object.
 ///
-/// * responding to `Ping` messages (Binance)
+/// * responding to `Ping` messages
 impl Stream for ConnectedBookUpdateSource {
     type Item = BookUpdate;
 
@@ -120,8 +120,11 @@ impl Stream for ConnectedBookUpdateSource {
                 }
             }
             Poll::Ready(Some(Ok(Message::Ping(data)))) => {
-                info!("Ping received from '{}'. Respond.", &self.ws_url);
-                let _ = self.ws_stream.send(Message::Pong(data));
+                info!("Ping received from '{}'.", &self.ws_url);
+                match futures::executor::block_on(self.ws_stream.send(Message::Pong(data))) {
+                    Ok(()) => info!("Ping response sent."),
+                    Err(e) => error!("Ping response send error {:?}", e)
+                }
                 Poll::Pending
             }
             _ => Poll::Pending

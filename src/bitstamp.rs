@@ -2,7 +2,7 @@
 
 use log::debug;
 use rust_decimal::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize};
 
 use crate::core::*;
 use crate::exchange::{BookUpdateReader, BookUpdateSource};
@@ -62,22 +62,22 @@ impl BookUpdateSource for BitstampBookUpdateSource {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 struct BitstampPair((String, String));
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 struct BitstampBookUpdateData {
-    timestamp: String,
-    microtimestamp: String,
+    _timestamp: String,
+    _microtimestamp: String,
     bids: Vec<BitstampPair>,
     asks: Vec<BitstampPair>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 struct BitstampBookUpdate {
     data: BitstampBookUpdateData,
-    channel: String,
-    event: String,
+    _channel: String,
+    _event: String,
 }
 
 impl From<BitstampPair> for ExchangeLevel {

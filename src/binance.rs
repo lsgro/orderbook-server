@@ -2,7 +2,7 @@
 
 use log::debug;
 use rust_decimal::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize};
 
 use crate::core::*;
 use crate::exchange::{BookUpdateReader, BookUpdateSource};
@@ -62,13 +62,13 @@ impl BookUpdateSource for BinanceBookUpdateSource {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 struct BinancePair((String, String));
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct BinanceBookUpdate {
-    last_update_id: u64,
+    _last_update_id: u64,
     bids: Vec<BinancePair>,
     asks: Vec<BinancePair>,
 }

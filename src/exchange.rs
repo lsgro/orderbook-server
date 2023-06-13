@@ -72,7 +72,7 @@ pub trait BookUpdateSource: Send + Sync {
             info!("Subscription '{}' succeeded.", &subscribe_msg);
             let book_update_reader = self.make_book_update_reader();
             Ok(ConnectedBookUpdateSource{
-                ws_url: ws_url.clone(),
+                exchange_code: self.exchange_code(),
                 ws_stream: Box::pin(ws),
                 book_update_reader,
             })
@@ -83,7 +83,7 @@ pub trait BookUpdateSource: Send + Sync {
 /// Object representing a connected exchange adapter.
 pub struct ConnectedBookUpdateSource {
     /// WebSocket base URL for the exchange service. Used for messages.
-    ws_url: String,
+    exchange_code: &'static str,
     /// WebSocket stream delivering book snapshot messages from the exchange.
     ws_stream: Pin<Box<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>>,
     /// Exchange-specific message parser.
@@ -97,7 +97,7 @@ impl ConnectedBookUpdateSource {
     ///
     /// An empty [Result](Result).
     pub async fn disconnect(mut self) -> Result<(), tungstenite::Error>{
-        info!("Disconnect from '{}'.", &self.ws_url);
+        info!("Disconnect from '{}'.", self.exchange_code);
         self.ws_stream.close().await
     }
 }
@@ -120,7 +120,7 @@ impl Stream for ConnectedBookUpdateSource {
                 }
             }
             Poll::Ready(Some(Ok(Message::Ping(data)))) => {
-                info!("Ping received from '{}'.", &self.ws_url);
+                info!("Ping received from '{}'.", self.exchange_code);
                 match futures::executor::block_on(self.ws_stream.send(Message::Pong(data))) {
                     Ok(()) => info!("Ping response sent."),
                     Err(e) => error!("Ping response send error {:?}", e)

@@ -5,61 +5,35 @@ use rust_decimal::prelude::*;
 use serde::{Deserialize};
 
 use crate::core::*;
-use crate::exchange::{BookUpdateReader, BookUpdateSource};
+use crate::exchange::BookUpdateSource;
 
 
 const BINANCE_CODE: &str = "binance";
 const BINANCE_WS_URL: &str = "wss://stream.binance.com:443/ws";
 
 
-/// Binance implementation of the message parser [BookUpdateReader](BookUpdateReader).
-struct BinanceBookUpdateReader;
-
-impl BookUpdateReader for BinanceBookUpdateReader {
-    fn read_book_update(&self, value: String) -> Option<BookUpdate> {
-        let parse_res: serde_json::Result<BinanceBookUpdate> = serde_json::from_str(&value);
-        match parse_res {
-            Ok(book_update @ BinanceBookUpdate{..}) => Some(book_update.into()),
-            _ => {
-                debug!("Parse failed {:?}", &value);
-                None
-            }
+fn read_binance_book_update(value: &str) -> Option<BookUpdate> {
+    let parse_res: serde_json::Result<BinanceBookUpdate> = serde_json::from_str(value);
+    match parse_res {
+        Ok(book_update @ BinanceBookUpdate{..}) => Some(book_update.into()),
+        _ => {
+            debug!("Parse failed {:?}", value);
+            None
         }
     }
 }
 
-/// Binance implementation of the exchange adapter [BookUpdateSource](BookUpdateSource).
-pub struct BinanceBookUpdateSource {
-    ws_url: String,
-    subscribe_msg: String,
-}
-
-impl BinanceBookUpdateSource {
-    pub fn new(product: &CurrencyPair) -> Self {
-        let product_code = product.to_string().to_lowercase();
-        let channel_code = format!("{}@depth{}@100ms", product_code, NUM_LEVELS);
-        let ws_url = format!("{}/{}", BINANCE_WS_URL, channel_code);
-        let subscribe_msg = format!(r#"{{"method":"SUBSCRIBE","params":["{}"],"id":10}}"#, channel_code);
-        Self { ws_url, subscribe_msg }
-    }
-}
-
-impl BookUpdateSource for BinanceBookUpdateSource {
-    fn ws_url(&self) -> String {
-        self.ws_url.clone()
-    }
-
-    fn subscribe_message(&self) -> String {
-        self.subscribe_msg.clone()
-    }
-
-    fn make_book_update_reader(&self) ->  Box<dyn BookUpdateReader> {
-        Box::new(BinanceBookUpdateReader)
-    }
-
-    fn exchange_code(&self) -> &'static str {
-        BINANCE_CODE
-    }
+pub async fn make_binance_book_update_source(product: &CurrencyPair) -> BookUpdateSource {
+    let product_code = product.to_string().to_lowercase();
+    let channel_code = format!("{}@depth{}@100ms", product_code, NUM_LEVELS);
+    let ws_url = format!("{}/{}", BINANCE_WS_URL, channel_code);
+    let subscribe_message = format!(r#"{{"method":"SUBSCRIBE","params":["{}"],"id":10}}"#, channel_code);
+    BookUpdateSource::new(
+        BINANCE_CODE,
+        ws_url,
+        subscribe_message,
+        &read_binance_book_update,
+    ).await
 }
 
 #[derive(Deserialize, Debug)]
@@ -68,7 +42,6 @@ struct BinancePair((String, String));
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct BinanceBookUpdate {
-    _last_update_id: u64,
     bids: Vec<BinancePair>,
     asks: Vec<BinancePair>,
 }
@@ -102,7 +75,6 @@ mod tests {
     #[test]
     fn test_convert_binance_book_update() {
         let b_book_update = BinanceBookUpdate {
-            _last_update_id: 333,
             bids: vec![
                 BinancePair(("0.123".to_string(), "123.1".to_string())),
                 BinancePair(("0.321".to_string(), "321.3".to_string()))

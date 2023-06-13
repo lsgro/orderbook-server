@@ -33,7 +33,7 @@ pub struct BookSummaryService {
     aggregate_book: AggregateBook,
 }
 
-impl BookSummaryService {
+impl  BookSummaryService {
     /// Create a new instance of the service.
     ///
     /// # Arguments
@@ -94,7 +94,7 @@ impl BookSummaryService {
 }
 
 /// [Stream](Stream) implementation for the service producing protobuf [Summary](Summary) objects.
-impl Stream for BookSummaryService {
+impl  Stream for BookSummaryService {
     type Item = Summary;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

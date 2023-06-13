@@ -5,127 +5,128 @@ use log::{info, error};
 use futures::prelude::*;
 use std::{pin::Pin, task::{Context, Poll}};
 use futures::stream::{Stream, select, Select};
-use tokio_tungstenite::{connect_async, WebSocketStream, MaybeTlsStream, tungstenite::protocol::Message, tungstenite};
+use tokio::{time::{sleep, Duration}, sync::mpsc};
+use tokio_tungstenite::{connect_async, tungstenite::protocol::Message, tungstenite};
 
 use crate::core::*;
 
 
-/// Parsing an exchange book snapshot string message into a [BookUpdate](BookUpdate) object.
-/// Used by implementors of [BookUpdateSource](BookUpdateSource).
-pub trait BookUpdateReader: Send + Sync {
-    /// Read string and try to parse into a [BookUpdate](BookUpdate) object.
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - A string
-    ///
-    /// # Returns
-    ///
-    /// If successful, a `Some(BookUpdate)`, `None` otherwise.
-    fn read_book_update(&self, value: String) -> Option<BookUpdate>;
+const SLEEP_BEFORE_RECONNECT_MS: u64 = 200;
+
+
+pub type BookUpdateReader = &'static (dyn Fn(&str) -> Option<BookUpdate> + Send + Sync);
+
+enum Command {
+    Close,
 }
 
-/// The required behavior of an exchange adapter. `Send` and `Sync` trait bounds
-/// are needed to handle exchange adapter objects in a multi-threaded environment.
-pub trait BookUpdateSource: Send + Sync {
-    /// WebSocket base URL for the exchange service delivering continuous trading book snapshots.
-    ///
-    /// # Returns
-    ///
-    /// A string, to be used to build a complete WebSocket URL.
-    fn ws_url(&self) -> String;
-
-    /// Message to be sent to subscribe to continuous trading book snapshots.
-    ///
-    /// # Returns
-    ///
-    /// A string, to be sent to the exchange WebSocket service.
-    fn subscribe_message(&self) -> String;
-
-    /// Create a [BookUpdateReader](BookUpdateReader), wrapped in a [Box](Box).
-    ///
-    /// # Returns
-    ///
-    /// `Box` containing a [BookUpdateReader](BookUpdateReader) object.
-    fn make_book_update_reader(&self) -> Box<dyn BookUpdateReader>;
-
-    /// A string code identifying an exchange.
-    ///
-    /// # Return a static string slice.
-    fn exchange_code(&self) -> &'static str;
-
-    /// Create a new connection to the exchange. This is an asynchronous method, written without the
-    /// `async` keyword, to be included in the trait.
-    ///
-    /// # Returns
-    ///
-    /// A pinned, boxed [Future](Future) object delivering an object of type
-    /// [ConnectedBookUpdateSource](ConnectedBookUpdateSource) wrapped in a [Result](Result).
-    fn make_connection(&self) -> Pin<Box<dyn Future<Output = Result<ConnectedBookUpdateSource, tungstenite::Error>> + Send + '_>> {
-        let ws_url = self.ws_url();
-        info!("Connecting to '{}'.", &ws_url);
-        Box::pin(async move {
-            let (mut ws, _) = connect_async(ws_url.clone()).await?;
-            let subscribe_msg = self.subscribe_message();
-            info!("Subscription '{}'.", &subscribe_msg);
-            ws.send(Message::Text(subscribe_msg.clone())).await?;
-            info!("Subscription '{}' succeeded.", &subscribe_msg);
-            let book_update_reader = self.make_book_update_reader();
-            Ok(ConnectedBookUpdateSource{
-                exchange_code: self.exchange_code(),
-                ws_stream: Box::pin(ws),
-                book_update_reader,
-            })
-        })
-    }
-}
-
-/// Object representing a connected exchange adapter.
-pub struct ConnectedBookUpdateSource {
+pub struct BookUpdateSource {
     /// Exchange code. Used for messages.
     exchange_code: &'static str,
-    /// WebSocket stream delivering book snapshot messages from the exchange.
-    ws_stream: Pin<Box<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>>,
+    ws_url: String,
+    subscribe_message: String,
     /// Exchange-specific message parser.
-    book_update_reader: Box<dyn BookUpdateReader>,
+    book_update_reader: BookUpdateReader,
 }
 
-impl ConnectedBookUpdateSource {
-    /// Disconnect from the exchange.
-    ///
-    /// # Returns
-    ///
-    /// An empty [Result](Result).
-    pub async fn disconnect(mut self) -> Result<(), tungstenite::Error>{
-        info!("Disconnect from {}.", self.exchange_code);
-        self.ws_stream.close().await
+impl BookUpdateSource {
+    pub async fn new(
+        exchange_code: &'static str,
+        ws_url: String,
+        subscribe_message: String,
+        book_update_reader: BookUpdateReader) -> BookUpdateSource {
+        BookUpdateSource {
+            exchange_code,
+            ws_url,
+            subscribe_message,
+            book_update_reader,
+        }
+    }
+
+    pub async fn make_stream(&self) -> BookUpdateSourceStream {
+        let exchange_code = self.exchange_code;
+        let ws_url = self.ws_url.clone();
+        let subscribe_message = self.subscribe_message.clone();
+        let (data_sender, data_receiver) = mpsc::channel::<String>(1);
+        let (command_sender, mut command_receiver) = mpsc::channel::<Command>(1);
+        tokio::spawn(async move {
+            'outer: loop {
+                info!("Connecting to WebSocket: {}", &ws_url);
+                let (ws, _) = connect_async(ws_url.clone()).await.unwrap_or_else(
+                    |_| panic!("Connection error for {}", exchange_code));
+                info!("Subscription '{}'.", subscribe_message);
+                let mut pinned_ws = Box::pin(ws);
+                pinned_ws.send(Message::Text(subscribe_message.clone())).await.unwrap_or_else(
+                    |_| panic!("Subscription error for {}", subscribe_message));
+                info!("Subscription to {} succeeded.", exchange_code);
+                loop {
+                    if let Ok(command) = command_receiver.try_recv() {
+                        match command {
+                            Command::Close => {
+                                info!("Disconnecting exchange {}", exchange_code);
+                                match pinned_ws.close().await {
+                                    Ok(_) => info!("Exchange {} disconnected", exchange_code),
+                                    Err(error) => error!("Error disconnecting from {}: {:?}", exchange_code, error),
+                                }
+                                break 'outer;
+                            }
+                        }
+                    }
+                    match pinned_ws.next().await {
+                        Some(Ok(Message::Text(text))) => {
+                            match data_sender.send(text).await {
+                                Ok(_) => (),
+                                Err(_) => error!("Error queueing data"),
+                            }
+                        },
+                        Some(Err(tungstenite::Error::AlreadyClosed)) => {
+                            break
+                        }
+                        _ => (),
+                    }
+                }
+                error!(
+                    "Connection to exchange {} closed. Trying reconnection in {}ms",
+                    exchange_code,
+                    SLEEP_BEFORE_RECONNECT_MS);
+                sleep(Duration::from_millis(SLEEP_BEFORE_RECONNECT_MS)).await;
+            }
+        });
+        BookUpdateSourceStream {
+            data_receiver,
+            command_sender,
+            book_update_reader: self.book_update_reader,
+        }
     }
 }
 
-/// A wrapper of the raw [Stream](Stream) from the WebSocket exchange service,
-/// adding the functionalities of:
-///
-/// * parsing the original message into a [BookUpdate](BookUpdate) object.
-///
-/// * responding to `Ping` messages
-impl Stream for ConnectedBookUpdateSource {
+pub struct BookUpdateSourceStream {
+    data_receiver: mpsc::Receiver<String>,
+    command_sender: mpsc::Sender<Command>,
+    book_update_reader: BookUpdateReader,
+}
+
+impl BookUpdateSourceStream {
+    pub async fn disconnect(&mut self) {
+        match self.command_sender.send(Command::Close).await {
+            Ok(_) => (),
+            Err(_) => error!("Error queueing command"),
+        };
+    }
+}
+
+impl Stream for BookUpdateSourceStream {
     type Item = BookUpdate;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.ws_stream.as_mut().poll_next(cx) {
-            Poll::Ready(Some(Ok(Message::Text(msg_txt)))) => {
-                match self.book_update_reader.read_book_update(msg_txt) {
-                    maybe_book_update @ Some(_) => Poll::Ready(maybe_book_update),
-                    _ => Poll::Pending
+        match self.data_receiver.poll_recv(cx) {
+            Poll::Ready(Some(text)) => {
+                if let Some(book_update) = (self.book_update_reader)(&text) {
+                    Poll::Ready(Some(book_update))
+                } else {
+                    info!("Could not parse message {}", &text);
+                    Poll::Pending
                 }
-            }
-            Poll::Ready(Some(Ok(Message::Ping(data)))) => {
-                info!("Ping received from {}.", self.exchange_code);
-                match futures::executor::block_on(self.ws_stream.send(Message::Pong(data))) {
-                    Ok(()) => info!("Ping response sent."),
-                    Err(e) => error!("Ping response send error {:?}", e)
-                }
-                Poll::Pending
             }
             _ => Poll::Pending
         }
@@ -137,32 +138,32 @@ impl Stream for ConnectedBookUpdateSource {
 /// in order to use from 1 to n streams, a recursive structure is used.
 pub enum BookUpdateStream {
     /// Single exchange connection
-    ExchangeStream(Pin<Box<ConnectedBookUpdateSource>>),
+    ExchangeStream(Pin<Box<BookUpdateSourceStream>>),
     /// [Select](Select) of two [BookUpdateStream](BookUpdateStream) objects.
     CompositeStream(Pin<Box<Select<BookUpdateStream, BookUpdateStream>>>)
 }
 
-impl BookUpdateStream {
+impl  BookUpdateStream {
     /// Creates a new object from single exchange adapters.
     ///
     /// # Arguments
     ///
-    /// `exchange_sources` - A [Vector](Vec) of boxed [BookUpdateSource](BookUpdateSource) objects.
+    /// `exchange_streams` - A [Vector](Vec) of [BookUpdateSource](BookUpdateSource) objects.
     ///
     /// # Returns
     ///
     /// A [BookUpdateStream](BookUpdateStream) object.
-    pub async fn new(exchange_sources: &Vec<Box<dyn BookUpdateSource>>) -> Self {
+    pub async fn new(exchange_sources: &Vec<BookUpdateSource>) -> BookUpdateStream {
         assert!(!exchange_sources.is_empty());
-        let mut connected_sources: Vec<ConnectedBookUpdateSource> = vec![];
+        let mut connected_sources: Vec<BookUpdateSourceStream> = vec![];
         for p in exchange_sources {
-            let source_name = p.exchange_code();
-            let c = p.make_connection().await.unwrap_or_else(|_| panic!("Connection error for {}", source_name));
+            let c = p.make_stream().await;
             connected_sources.push(c);
         }
         if connected_sources.len() > 1 {
             let mut wrapped_sources = connected_sources.into_iter().map(
-                |p| Self::ExchangeStream(Box::pin(p)));
+                |p| Self::ExchangeStream(Box::pin(p))
+            );
             let w1 = wrapped_sources.next().unwrap();
             let w2 = wrapped_sources.next().unwrap();
             let acc = Self::CompositeStream(Box::pin(select(w1, w2)));

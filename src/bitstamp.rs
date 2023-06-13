@@ -5,61 +5,35 @@ use rust_decimal::prelude::*;
 use serde::{Deserialize};
 
 use crate::core::*;
-use crate::exchange::{BookUpdateReader, BookUpdateSource};
+use crate::exchange::BookUpdateSource;
 
 
 const BITSTAMP_CODE: &str = "bitstamp";
 const BITSTAMP_WS_URL: &str = "wss://ws.bitstamp.net";
 
 
-/// Bitstamp implementation of the message parser [BookUpdateReader](BookUpdateReader).
-struct BitstampBookUpdateReader;
-
-impl BookUpdateReader for BitstampBookUpdateReader {
-    fn read_book_update(&self, value: String) -> Option<BookUpdate> {
-        let parse_res: serde_json::Result<BitstampBookUpdate> = serde_json::from_str(&value);
-        match parse_res {
-            Ok(book_update @ BitstampBookUpdate{..}) => Some(book_update.into()),
-            _ => {
-                debug!("Parse failed {:?}", &value);
-                None
-            }
+fn read_bitstamp_book_update(value: &str) -> Option<BookUpdate> {
+    let parse_res: serde_json::Result<BitstampBookUpdate> = serde_json::from_str(&value);
+    match parse_res {
+        Ok(book_update @ BitstampBookUpdate{..}) => Some(book_update.into()),
+        _ => {
+            debug!("Parse failed {:?}", &value);
+            None
         }
     }
 }
 
-/// Bitstamp implementation of the exchange adapter [BookUpdateSource](BookUpdateSource).
-pub struct BitstampBookUpdateSource {
-    ws_url: String,
-    subscribe_msg: String,
-}
-
-impl BitstampBookUpdateSource {
-    pub fn new(product: &CurrencyPair) -> Self {
-        let product_code = product.to_string().to_lowercase();
-        let channel_code = format!("order_book_{}", product_code);
-        let ws_url = String::from(BITSTAMP_WS_URL);
-        let subscribe_msg = format!(r#"{{"event": "bts:subscribe","data":{{"channel":"{}"}}}}"#, channel_code);
-        Self { ws_url, subscribe_msg }
-    }
-}
-
-impl BookUpdateSource for BitstampBookUpdateSource {
-    fn ws_url(&self) -> String {
-        self.ws_url.clone()
-    }
-
-    fn subscribe_message(&self) -> String {
-        self.subscribe_msg.clone()
-    }
-
-    fn make_book_update_reader(&self) ->  Box<dyn BookUpdateReader> {
-        Box::new(BitstampBookUpdateReader)
-    }
-
-    fn exchange_code(&self) -> &'static str {
-        BITSTAMP_CODE
-    }
+pub async fn make_bitstamp_book_update_source(product: &CurrencyPair) -> BookUpdateSource {
+    let product_code = product.to_string().to_lowercase();
+    let channel_code = format!("order_book_{}", product_code);
+    let ws_url = String::from(BITSTAMP_WS_URL);
+    let subscribe_message = format!(r#"{{"event": "bts:subscribe","data":{{"channel":"{}"}}}}"#, channel_code);
+    BookUpdateSource::new(
+        BITSTAMP_CODE,
+        ws_url,
+        subscribe_message,
+        &read_bitstamp_book_update,
+    ).await
 }
 
 #[derive(Deserialize, Debug)]
@@ -67,8 +41,6 @@ struct BitstampPair((String, String));
 
 #[derive(Deserialize, Debug)]
 struct BitstampBookUpdateData {
-    _timestamp: String,
-    _microtimestamp: String,
     bids: Vec<BitstampPair>,
     asks: Vec<BitstampPair>,
 }
@@ -76,8 +48,6 @@ struct BitstampBookUpdateData {
 #[derive(Deserialize, Debug)]
 struct BitstampBookUpdate {
     data: BitstampBookUpdateData,
-    _channel: String,
-    _event: String,
 }
 
 impl From<BitstampPair> for ExchangeLevel {
@@ -110,8 +80,6 @@ mod tests {
     fn test_convert_bitstamp_book_update() {
         let b_book_update = BitstampBookUpdate {
             data: BitstampBookUpdateData {
-                _timestamp: "123".to_string(),
-                _microtimestamp: "123000".to_string(),
                 bids: vec![
                     BitstampPair(("0.123".to_string(), "123.1".to_string())),
                     BitstampPair(("0.321".to_string(), "321.3".to_string()))
@@ -121,8 +89,6 @@ mod tests {
                     BitstampPair(("1.231".to_string(), "122.1".to_string()))
                 ],
             },
-            _channel: "test channel".to_string(),
-            _event: "data".to_string(),
         };
         let exp_book_update = BookUpdate {
             exchange_code: BITSTAMP_CODE,

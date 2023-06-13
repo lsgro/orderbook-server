@@ -79,6 +79,13 @@ impl BookUpdateSource {
                                 Err(_) => error!("Error queueing data"),
                             }
                         },
+                        Some(Ok(Message::Ping(data))) => {
+                            info!("Received ping from {}", exchange_code);
+                            match pinned_ws.send(Message::Pong(data)).await {
+                                Ok(_) => info!("Sent ping response to {}", exchange_code),
+                                Err(_) => error!("Error sending ping response to {}", exchange_code),
+                            }
+                        },
                         Some(Err(tungstenite::Error::AlreadyClosed)) => {
                             break
                         }

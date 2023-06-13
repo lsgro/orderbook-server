@@ -110,8 +110,8 @@ mod tests {
     fn test_convert_bitstamp_book_update() {
         let b_book_update = BitstampBookUpdate {
             data: BitstampBookUpdateData {
-                timestamp: "123".to_string(),
-                microtimestamp: "123000".to_string(),
+                _timestamp: "123".to_string(),
+                _microtimestamp: "123000".to_string(),
                 bids: vec![
                     BitstampPair(("0.123".to_string(), "123.1".to_string())),
                     BitstampPair(("0.321".to_string(), "321.3".to_string()))
@@ -121,8 +121,8 @@ mod tests {
                     BitstampPair(("1.231".to_string(), "122.1".to_string()))
                 ],
             },
-            channel: "test channel".to_string(),
-            event: "data".to_string(),
+            _channel: "test channel".to_string(),
+            _event: "data".to_string(),
         };
         let exp_book_update = BookUpdate {
             exchange_code: BITSTAMP_CODE,

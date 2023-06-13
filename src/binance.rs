@@ -102,7 +102,7 @@ mod tests {
     #[test]
     fn test_convert_binance_book_update() {
         let b_book_update = BinanceBookUpdate {
-            last_update_id: 333,
+            _last_update_id: 333,
             bids: vec![
                 BinancePair(("0.123".to_string(), "123.1".to_string())),
                 BinancePair(("0.321".to_string(), "321.3".to_string()))

@@ -21,8 +21,12 @@ const SLEEP_BEFORE_RECONNECT_MS: u64 = 200;
 /// * `T` - Output data type from the [exchange Stream](ExchangeAdapterStream).
 pub type ExchangeProtocolReader<T> = &'static (dyn Fn(&str) -> Option<ExchangeProtocol<T>> + Send + Sync);
 
+/// Messages received from an exchange.
+#[derive(PartialEq, Debug)]
 pub enum ExchangeProtocol<T: 'static + Send> {
+    /// Service data.
     Data(T),
+    /// Exchange requested a reconnection.
     ReconnectionRequest,
 } 
 
@@ -121,6 +125,7 @@ impl <T: 'static + Send> ExchangeAdapter<T> {
                 ws_url.clone(),
                 subscribe_message.clone()
             ).await;
+            'message:
             loop {
                 if let Ok(command) = command_receiver.try_recv() {
                     match command {
@@ -136,11 +141,18 @@ impl <T: 'static + Send> ExchangeAdapter<T> {
                 }
                 match pinned_ws.next().await {
                     Some(Ok(Message::Text(text))) => {
-                        if let Some(ExchangeProtocol::Data(data)) = protocol_reader(&text) {
-                            match data_sender.send(data).await {
-                                Ok(_) => (),
-                                Err(_) => error!("Error queueing data"),
-                            }
+                        match protocol_reader(&text) {
+                            Some(ExchangeProtocol::Data(data)) => {
+                                match data_sender.send(data).await {
+                                    Ok(_) => (),
+                                    Err(_) => error!("Error queueing data"),
+                                }
+                            },
+                            Some(ExchangeProtocol::ReconnectionRequest) => {
+                                info!("Reconnection request from {}", exchange_code);
+                                break 'message;
+                            },
+                            _ => ()
                         }
                     },
                     Some(Ok(Message::Ping(data))) => {
@@ -156,7 +168,7 @@ impl <T: 'static + Send> ExchangeAdapter<T> {
                          )
                     ) => {
                         error!("Connection to exchange {} closed", exchange_code);
-                        break
+                        break 'message;
                     },
                     Some(other) => info!("Received unexpected message: {:?}", other),
                     _ => (),
@@ -193,7 +205,7 @@ pub struct ExchangeAdapterStream<T: 'static + Send> {
     /// Channel receiver for exchange data of type [T](T).
     data_receiver: mpsc::Receiver<T>,
     /// Channel sender for commands to drive the behaviour of the processing loop in the
-    /// [ExchangeAdapter](ExchangeAdapter) object from which this structure is created.
+    /// [ExchangeAdapter](ExchangeAdapter) object.
     command_sender: mpsc::Sender<AdapterCommand>,
 }
 

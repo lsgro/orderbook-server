@@ -11,7 +11,9 @@ use crate::exchange::{ExchangeAdapter, ExchangeProtocol};
 const BINANCE_CODE: &str = "binance";
 const BINANCE_WS_URL: &str = "wss://stream.binance.com:443/ws";
 
-
+/// Parse string messages from trading book update Binance WebSocket service into
+/// the exchange [protocol](ExchangeProtocol).
+/// It recognizes trading book updates.
 fn read_binance_book_update(value: &str) -> Option<ExchangeProtocol<BookUpdate>> {
     let parse_res: serde_json::Result<BinanceBookUpdate> = serde_json::from_str(value);
     match parse_res {
@@ -25,6 +27,7 @@ fn read_binance_book_update(value: &str) -> Option<ExchangeProtocol<BookUpdate>>
     }
 }
 
+/// Creates an [exchange adapter](ExchangeAdapter) for Binance.
 pub async fn make_binance_exchange_adapter(product: &CurrencyPair) -> ExchangeAdapter<BookUpdate> {
     let product_code = product.to_string().to_lowercase();
     let channel_code = format!("{}@depth{}@100ms", product_code, NUM_LEVELS);
@@ -75,6 +78,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_read_binance_book_update_success() {
+        let websocket_msg = r#"{"lastUpdateId":1580041371,"bids":[["0.00001049","9383.30000000"],["0.00001048","186198.30000000"]],"asks":[["0.00001050","133639.50000000"],["0.00001051","133083.10000000"]]}"#;
+        let parsed = read_binance_book_update(websocket_msg);
+        let expected = Some(ExchangeProtocol::Data(BookUpdate{
+            exchange_code: "binance",
+            bids: vec![
+                ExchangeLevel::from_strs("binance", "0.00001049","9383.30000000"),
+                ExchangeLevel::from_strs("binance", "0.00001048","186198.30000000")
+            ],
+            asks: vec![
+                ExchangeLevel::from_strs("binance", "0.00001050","133639.50000000"),
+                ExchangeLevel::from_strs("binance", "0.00001051","133083.10000000"),
+            ],
+        }));
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn test_read_binance_book_update_failure() {
+        let websocket_msg = r#"{"lastUpdateId":1580041371,"bids":[["0.00001049","9383.30000000"],["__INCORRECT__"]],"asks":[["0.00001050","133639.50000000"],["0.00001051","133083.10000000"]]}"#;
+        let parsed = read_binance_book_update(websocket_msg);
+        assert_eq!(parsed, None);
+    }
+
+        #[test]
     fn test_convert_binance_book_update() {
         let b_book_update = BinanceBookUpdate {
             bids: vec![

@@ -15,13 +15,13 @@ const BITSTAMP_WS_URL: &str = "wss://ws.bitstamp.net";
 /// the exchange [protocol](ExchangeProtocol).
 /// It recognizes trading book updates and reconnection requests.
 fn read_bitstamp_book_update(value: &str) -> Option<ExchangeProtocol<BookUpdate>> {
-    let data_result: serde_json::Result<BitstampBookUpdate> = serde_json::from_str(&value);
+    let data_result: serde_json::Result<BitstampBookUpdate> = serde_json::from_str(value);
     match data_result {
         Ok(book_update @ BitstampBookUpdate {..}) => {
             Some(ExchangeProtocol::Data(book_update.into()))
         },
         _ => {
-            let event_result: serde_json::Result<BitstampEvent> = serde_json::from_str(&value);
+            let event_result: serde_json::Result<BitstampEvent> = serde_json::from_str(value);
             if let Ok(BitstampEvent {event}) = event_result {
                 if event == "bts:request_reconnect" {
                     Some(ExchangeProtocol::ReconnectionRequest)

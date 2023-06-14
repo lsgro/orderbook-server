@@ -9,7 +9,7 @@ use rust_decimal::prelude::ToPrimitive;
 
 use crate::core::*;
 use crate::aggregator::AggregateBook;
-use crate::exchange::BookUpdateStream;
+use crate::exchange::ExchangeDataStream;
 
 use crate::orderbook::{Summary, Level};
 
@@ -28,7 +28,7 @@ impl From<&ExchangeLevel> for Level {
 /// received from `book_update_stream`.
 pub struct BookSummaryService {
     /// An object representing a merged stream of trading book snapshots.
-    book_update_stream: Pin<Box<BookUpdateStream>>,
+    book_update_stream: Pin<Box<ExchangeDataStream<BookUpdate>>>,
     /// The aggregate book where all the trading book snapshots are consolidated.
     aggregate_book: AggregateBook,
 }
@@ -38,19 +38,19 @@ impl  BookSummaryService {
     ///
     /// # Arguments
     ///
-    /// * `book_update_stream` - An object of type [BookUpdateStream](BookUpdateStream).
+    /// * `book_update_stream` - An object of type [BookUpdateStream](ExchangeDataStream).
     ///
     /// # Returns
     ///
     /// An instance of [BookSummaryService](BookSummaryService)
-    pub fn new(book_update_stream: BookUpdateStream) -> Self {
+    pub fn new(book_update_stream: ExchangeDataStream<BookUpdate>) -> Self {
         let aggregate_book = AggregateBook::new(NUM_LEVELS);
         Self { book_update_stream: Box::pin(book_update_stream), aggregate_book }
     }
 
     /// Disconnect from all exchanges, it consumes the service.
     pub async fn disconnect(self) {
-        let book_update_stream: Box<BookUpdateStream> = Pin::into_inner(self.book_update_stream);
+        let book_update_stream: Box<ExchangeDataStream<BookUpdate>> = Pin::into_inner(self.book_update_stream);
         book_update_stream.disconnect().await;
     }
 

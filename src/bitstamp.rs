@@ -5,17 +5,19 @@ use rust_decimal::prelude::*;
 use serde::{Deserialize};
 
 use crate::core::*;
-use crate::exchange::ExchangeAdapter;
+use crate::exchange::{ExchangeAdapter, ExchangeProtocol};
 
 
 const BITSTAMP_CODE: &str = "bitstamp";
 const BITSTAMP_WS_URL: &str = "wss://ws.bitstamp.net";
 
 
-fn read_bitstamp_book_update(value: &str) -> Option<BookUpdate> {
+fn read_bitstamp_book_update(value: &str) -> Option<ExchangeProtocol<BookUpdate>> {
     let parse_res: serde_json::Result<BitstampBookUpdate> = serde_json::from_str(&value);
     match parse_res {
-        Ok(book_update @ BitstampBookUpdate{..}) => Some(book_update.into()),
+        Ok(book_update @ BitstampBookUpdate{..}) => {
+            Some(ExchangeProtocol::Data(book_update.into()))
+        },
         _ => {
             debug!("Parse failed {:?}", &value);
             None
@@ -23,7 +25,7 @@ fn read_bitstamp_book_update(value: &str) -> Option<BookUpdate> {
     }
 }
 
-pub async fn make_bitstamp_echange_adapter(product: &CurrencyPair) -> ExchangeAdapter {
+pub async fn make_bitstamp_echange_adapter(product: &CurrencyPair) -> ExchangeAdapter<BookUpdate> {
     let product_code = product.to_string().to_lowercase();
     let channel_code = format!("order_book_{}", product_code);
     let ws_url = String::from(BITSTAMP_WS_URL);

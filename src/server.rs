@@ -11,8 +11,9 @@ use tonic::{transport::Server, Request, Response, Status};
 
 use orderbook_server::orderbook::{Summary, Empty, orderbook_aggregator_server::{OrderbookAggregator, OrderbookAggregatorServer}};
 
+use orderbook_server::core::BookUpdate;
 use orderbook_server::cli::ArgParser;
-use orderbook_server::exchange::{ExchangeAdapter, BookUpdateStream};
+use orderbook_server::exchange::{ExchangeAdapter, ExchangeDataStream};
 use orderbook_server::service::BookSummaryService;
 use orderbook_server::binance::make_binance_exchange_adapter;
 use orderbook_server::bitstamp::make_bitstamp_echange_adapter;
@@ -27,7 +28,7 @@ const USAGE_MESSAGE: &str = "Usage: server <currency pair> [port]";
 /// Top level object representing a Profobuf RPC server.
 pub struct ProtobufOrderbookServer {
     /// The exchange adapters.
-    exchange_adapters: Vec<ExchangeAdapter>,
+    exchange_adapters: Vec<ExchangeAdapter<BookUpdate>>,
 }
 
 impl ProtobufOrderbookServer {
@@ -41,7 +42,7 @@ impl ProtobufOrderbookServer {
     /// # Returns
     ///
     /// A [ProtobufOrderbookServer](ProtobufOrderbookServer) object.
-    pub fn new(exchange_adapters: Vec<ExchangeAdapter>) -> Self {
+    pub fn new(exchange_adapters: Vec<ExchangeAdapter<BookUpdate>>) -> Self {
         Self { exchange_adapters }
     }
 
@@ -79,7 +80,7 @@ impl OrderbookAggregator for ProtobufOrderbookServer {
         info!("Client connected from: {:?}", req.remote_addr());
 
         let (tx, rx) = mpsc::channel(128);
-        let book_update_stream = BookUpdateStream::new(&self.exchange_adapters).await;
+        let book_update_stream = ExchangeDataStream::new(&self.exchange_adapters).await;
         let mut service: BookSummaryService = BookSummaryService::new(book_update_stream);
 
         tokio::spawn(async move {
@@ -107,7 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let port = arg_parser.extract_port();
     let binance_adapter = make_binance_exchange_adapter(&product).await;
     let bitstamp_adapter = make_bitstamp_echange_adapter(&product).await;
-    let exchange_adapters: Vec<ExchangeAdapter> = vec![
+    let exchange_adapters: Vec<ExchangeAdapter<BookUpdate>> = vec![
         binance_adapter,
         bitstamp_adapter,
     ];

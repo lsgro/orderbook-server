@@ -1,5 +1,5 @@
 //! Common functionalities to create WebSocket exchange adapters and merging their
-//! [streams](Stream) of trading book snapshots.
+//! [streams](Stream) of data.
 
 use log::{info, error};
 use futures::prelude::*;
@@ -8,26 +8,33 @@ use futures::stream::{Stream, select, Select};
 use tokio::{time::{sleep, Duration}, sync::mpsc, net::TcpStream};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message, tungstenite, MaybeTlsStream, WebSocketStream};
 
-use crate::core::*;
-
 
 /// Delay before trying reconnection
 const SLEEP_BEFORE_RECONNECT_MS: u64 = 200;
 
 
-/// Type alias for an exchange-specific function that parses a message into a
-/// [BookUpdate](BookUpdate) object
-pub type BookUpdateReader = &'static (dyn Fn(&str) -> Option<BookUpdate> + Send + Sync);
+/// Type alias for an exchange-specific function that parses a message into an
+/// [ExchangeProtocol](ExchangeProtocol) object.
+/// 
+/// # Generic arguments
+/// 
+/// * `T` - Output data type from the [exchange Stream](ExchangeAdapterStream).
+pub type ExchangeProtocolReader<T> = &'static (dyn Fn(&str) -> Option<ExchangeProtocol<T>> + Send + Sync);
+
+pub enum ExchangeProtocol<T: 'static + Send> {
+    Data(T),
+    ReconnectionRequest,
+} 
 
 /// Type used to send commands from the [exchange stream](ExchangeAdapterStream)
 /// to the internal loop of the [exchange adapter](ExchangeAdapter).
-enum Command {
+enum AdapterCommand {
     /// Disconnect the exchange and exit the loop
     Close,
 }
 
 /// Contains all the information to connect to an exchange
-pub struct ExchangeAdapter {
+pub struct ExchangeAdapter<T: 'static + Send> {
     /// Exchange code. Used for messages.
     exchange_code: &'static str,
     /// WebSocket URL.
@@ -35,10 +42,10 @@ pub struct ExchangeAdapter {
     /// WebSocket subscription message.
     subscribe_message: String,
     /// Exchange-specific message parser function.
-    book_update_reader: BookUpdateReader,
+    protocol_reader: ExchangeProtocolReader<T>,
 }
 
-impl ExchangeAdapter {
+impl <T: 'static + Send> ExchangeAdapter<T> {
     /// Create a new [ExchangeAdapter](ExchangeAdapter) object.
     ///
     /// # Arguments
@@ -49,21 +56,21 @@ impl ExchangeAdapter {
     ///
     /// * `subscribe_message` - WebSocket subscription message.
     ///
-    /// * `book_update_reader` - Exchange-specific message parser function.
+    /// * `protocol_reader` - Exchange-specific message parser function.
     ///
     /// # Returns
     ///
     /// A [ExchangeAdapter](ExchangeAdapter) object.
     pub async fn new(
-            exchange_code: &'static str,
-            ws_url: String,
-            subscribe_message: String,
-            book_update_reader: BookUpdateReader) -> ExchangeAdapter {
+        exchange_code: &'static str,
+        ws_url: String,
+        subscribe_message: String,
+        protocol_reader: ExchangeProtocolReader<T>) -> ExchangeAdapter<T> {
         ExchangeAdapter {
             exchange_code,
             ws_url,
             subscribe_message,
-            book_update_reader,
+            protocol_reader,
         }
     }
 
@@ -72,19 +79,25 @@ impl ExchangeAdapter {
     /// # Returns
     ///
     /// A [ExchangeAdapterStream](ExchangeAdapterStream) object.
-    pub async fn make_stream(&self) -> ExchangeAdapterStream {
+    pub async fn make_stream(&self) -> ExchangeAdapterStream<T> {
         let exchange_code = self.exchange_code;
         let ws_url = self.ws_url.clone();
         let subscribe_message = self.subscribe_message.clone();
-        let (data_sender, data_receiver) = mpsc::channel::<String>(1);
-        let (command_sender, command_receiver) = mpsc::channel::<Command>(1);
+        let (data_sender, data_receiver) = mpsc::channel::<T>(16);
+        let (command_sender, command_receiver) = mpsc::channel::<AdapterCommand>(1);
         tokio::spawn(
-            Self::process_stream(exchange_code, ws_url, subscribe_message, data_sender, command_receiver)
+            Self::process_stream(
+                exchange_code,
+                ws_url,
+                subscribe_message,
+                self.protocol_reader,
+                data_sender,
+                command_receiver
+            )
         );
         ExchangeAdapterStream {
             data_receiver,
             command_sender,
-            book_update_reader: self.book_update_reader,
         }
     }
 
@@ -92,14 +105,15 @@ impl ExchangeAdapter {
     /// delivering the data received to the corresponding [ExchangeAdapterStream](ExchangeAdapterStream)
     /// object through a channel.
     /// It handles pings and it tries to reconnect in case of connection error.
-    /// It receives [Command](Command) instances through a channel, to drive its behavior.
+    /// It receives [Command](AdapterCommand) instances through a channel, to drive its behavior.
     /// Currently only closing behavior implemented.
     async fn process_stream(
             exchange_code: &str,
             ws_url: String,
             subscribe_message: String,
-            data_sender: mpsc::Sender<String>,
-            mut command_receiver: mpsc::Receiver<Command>) {
+            protocol_reader: ExchangeProtocolReader<T>,
+            data_sender: mpsc::Sender<T>,
+            mut command_receiver: mpsc::Receiver<AdapterCommand>) {
         'connection:
         loop {
             let mut pinned_ws = Self::connect(
@@ -110,7 +124,7 @@ impl ExchangeAdapter {
             loop {
                 if let Ok(command) = command_receiver.try_recv() {
                     match command {
-                        Command::Close => {
+                        AdapterCommand::Close => {
                             info!("Disconnecting exchange {}", exchange_code);
                             match pinned_ws.close().await {
                                 Ok(_) => info!("Exchange {} disconnected", exchange_code),
@@ -122,9 +136,11 @@ impl ExchangeAdapter {
                 }
                 match pinned_ws.next().await {
                     Some(Ok(Message::Text(text))) => {
-                        match data_sender.send(text).await {
-                            Ok(_) => (),
-                            Err(_) => error!("Error queueing data"),
+                        if let Some(ExchangeProtocol::Data(data)) = protocol_reader(&text) {
+                            match data_sender.send(data).await {
+                                Ok(_) => (),
+                                Err(_) => error!("Error queueing data"),
+                            }
                         }
                     },
                     Some(Ok(Message::Ping(data))) => {
@@ -173,38 +189,31 @@ impl ExchangeAdapter {
 }
 
 /// Structure representing a connected exchange adapter.
-pub struct ExchangeAdapterStream {
-    /// Channel receiver receiving string messages from the WebSocket.
-    data_receiver: mpsc::Receiver<String>,
+pub struct ExchangeAdapterStream<T: 'static + Send> {
+    /// Channel receiver for exchange data of type [T](T).
+    data_receiver: mpsc::Receiver<T>,
     /// Channel sender for commands to drive the behaviour of the processing loop in the
     /// [ExchangeAdapter](ExchangeAdapter) object from which this structure is created.
-    command_sender: mpsc::Sender<Command>,
-    /// Exchange-specific message parser function.
-    book_update_reader: BookUpdateReader,
+    command_sender: mpsc::Sender<AdapterCommand>,
 }
 
-impl ExchangeAdapterStream {
+impl <T: 'static + Send> ExchangeAdapterStream<T> {
     /// Disconnect from the exchange.
     pub async fn disconnect(&mut self) {
-        match self.command_sender.send(Command::Close).await {
+        match self.command_sender.send(AdapterCommand::Close).await {
             Ok(_) => (),
             Err(_) => error!("Error queueing command"),
         };
     }
 }
 
-impl Stream for ExchangeAdapterStream {
-    type Item = BookUpdate;
+impl <T: 'static + Send> Stream for ExchangeAdapterStream<T> {
+    type Item = T;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.data_receiver.poll_recv(cx) {
-            Poll::Ready(Some(text)) => {
-                if let Some(book_update) = (self.book_update_reader)(&text) {
-                    Poll::Ready(Some(book_update))
-                } else {
-                    info!("Could not parse message {}", &text);
-                    Poll::Pending
-                }
+            Poll::Ready(Some(data)) => {
+                Poll::Ready(Some(data))
             }
             _ => Poll::Pending
         }
@@ -214,14 +223,14 @@ impl Stream for ExchangeAdapterStream {
 /// Composite type containing multiple connections to exchanges. Since
 /// [Select](Select) can only merge two streams at one time,
 /// in order to use from 1 to n streams, a recursive structure is used.
-pub enum BookUpdateStream {
+pub enum ExchangeDataStream<T: 'static + Send> {
     /// Single exchange connection
-    ExchangeStream(Pin<Box<ExchangeAdapterStream>>),
-    /// [Select](Select) of two [BookUpdateStream](BookUpdateStream) objects.
-    CompositeStream(Pin<Box<Select<BookUpdateStream, BookUpdateStream>>>)
+    ExchangeStream(Pin<Box<ExchangeAdapterStream<T>>>),
+    /// [Select](Select) of two [ExchangeDataStream](ExchangeDataStream) objects.
+    CompositeStream(Pin<Box<Select<ExchangeDataStream<T>, ExchangeDataStream<T>>>>)
 }
 
-impl  BookUpdateStream {
+impl <T: 'static + Send> ExchangeDataStream<T> {
     /// Creates a new object from exchange adapters.
     ///
     /// # Arguments
@@ -230,10 +239,10 @@ impl  BookUpdateStream {
     ///
     /// # Returns
     ///
-    /// A [BookUpdateStream](BookUpdateStream) object.
-    pub async fn new(exchange_adapters: &Vec<ExchangeAdapter>) -> BookUpdateStream {
+    /// An [ExchangeDataStream](ExchangeDataStream) object.
+    pub async fn new(exchange_adapters: &Vec<ExchangeAdapter<T>>) -> ExchangeDataStream<T> {
         assert!(!exchange_adapters.is_empty());
-        let mut adapter_streams: Vec<ExchangeAdapterStream> = vec![];
+        let mut adapter_streams: Vec<ExchangeAdapterStream<T>> = vec![];
         for p in exchange_adapters {
             let c = p.make_stream().await;
             adapter_streams.push(c);
@@ -270,8 +279,8 @@ impl  BookUpdateStream {
     }
 }
 
-impl Stream for BookUpdateStream {
-    type Item = BookUpdate;
+impl <T: 'static + Send> Stream for ExchangeDataStream<T> {
+    type Item = T;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.get_mut() {

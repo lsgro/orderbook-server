@@ -5,17 +5,19 @@ use rust_decimal::prelude::*;
 use serde::{Deserialize};
 
 use crate::core::*;
-use crate::exchange::ExchangeAdapter;
+use crate::exchange::{ExchangeAdapter, ExchangeProtocol};
 
 
 const BINANCE_CODE: &str = "binance";
 const BINANCE_WS_URL: &str = "wss://stream.binance.com:443/ws";
 
 
-fn read_binance_book_update(value: &str) -> Option<BookUpdate> {
+fn read_binance_book_update(value: &str) -> Option<ExchangeProtocol<BookUpdate>> {
     let parse_res: serde_json::Result<BinanceBookUpdate> = serde_json::from_str(value);
     match parse_res {
-        Ok(book_update @ BinanceBookUpdate{..}) => Some(book_update.into()),
+        Ok(book_update @ BinanceBookUpdate{..}) => {
+            Some(ExchangeProtocol::Data(book_update.into()))
+        },
         _ => {
             debug!("Parse failed {:?}", value);
             None
@@ -23,7 +25,7 @@ fn read_binance_book_update(value: &str) -> Option<BookUpdate> {
     }
 }
 
-pub async fn make_binance_exchange_adapter(product: &CurrencyPair) -> ExchangeAdapter {
+pub async fn make_binance_exchange_adapter(product: &CurrencyPair) -> ExchangeAdapter<BookUpdate> {
     let product_code = product.to_string().to_lowercase();
     let channel_code = format!("{}@depth{}@100ms", product_code, NUM_LEVELS);
     let ws_url = format!("{}/{}", BINANCE_WS_URL, channel_code);

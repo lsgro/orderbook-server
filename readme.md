@@ -10,8 +10,6 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 
 _Author_: _Luigi Sgro_
 
-_email_: [me@luigisgro.com](mailto:me@luigisgro.com)
-
 ## Requirements
 * [Rust/Cargo version 1.7.0](https://www.rust-lang.org/tools/install)
 * [Protoc Protobuf compiler - libprotoc version 23.2](https://github.com/protocolbuffers/protobuf/releases)
@@ -35,7 +33,10 @@ cargo doc --no-deps --document-private-items
 HTML documentation index is generated in `./target/doc/orderbook_server/index.html`.
 
 ## Run demo application
-* Run the server: `cargo run --bin server ETH-BTC`.
-Optionally specify a port as last argument.
-* Run the client (on the same host): `cargo run --bin client`.
-Specify a port as last argument if the server was started with a port argument.
+* Run the server:
+  - `cargo run --bin server ETH-BTC`. On default port: 50000.
+  - Optionally specify a port as last argument: `cargo run --bin server ETH-BTC 49999`.
+* Run the client (on the same host):
+  - `cargo run --bin client` streaming 500 messages (default).
+  - Optional specify number of messages to stream: `cargo run --bin client 300`.
+  - Optionally connecting to a custom port: `cargo run --bin client 300 49999`.

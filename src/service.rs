@@ -1,6 +1,6 @@
 //! Top level service consuming a stream of trading book snapshots, consolidating
 //! them in an aggregate trading book and delivering snapshots of the
-//! aggregate book via an output (stream)[Stream].
+//! aggregate book via an output [stream](Stream).
 
 use std::pin::Pin;
 use std::task::{Context, Poll};

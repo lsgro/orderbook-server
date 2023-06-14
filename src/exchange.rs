@@ -1,4 +1,4 @@
-//! Common functionalities to create WebSocket exchange adapters and merging their
+//! Common functionalities to create `WebSocket` exchange adapters and merging their
 //! [streams](Stream) of data.
 
 use log::{info, error};
@@ -109,7 +109,7 @@ impl <T: 'static + Send> ExchangeAdapter<T> {
     /// delivering the data received to the corresponding [ExchangeAdapterStream](ExchangeAdapterStream)
     /// object through a channel.
     /// It handles pings and it tries to reconnect in case of connection error.
-    /// It receives [Command](AdapterCommand) instances through a channel, to drive its behavior.
+    /// It receives [AdapterCommand](AdapterCommand) instances through a channel, to drive its behavior.
     /// Currently only closing behavior implemented.
     async fn process_stream(
             exchange_code: &str,
@@ -202,7 +202,7 @@ impl <T: 'static + Send> ExchangeAdapter<T> {
 
 /// Structure representing a connected exchange adapter.
 pub struct ExchangeAdapterStream<T: 'static + Send> {
-    /// Channel receiver for exchange data of type [T](T).
+    /// Channel receiver for exchange data of type `T`.
     data_receiver: mpsc::Receiver<T>,
     /// Channel sender for commands to drive the behaviour of the processing loop in the
     /// [ExchangeAdapter](ExchangeAdapter) object.

@@ -1,6 +1,5 @@
-//! Data structure for a consolidated trading book built from
-//! data coming from multiple sources, and an optimized algorithm to keep up-to-date
-//! the consolidated book.
+//! Data structures for a consolidated trading book built from
+//! data coming from multiple sources.
 
 use std::cmp::{min};
 use std::ops::Index;

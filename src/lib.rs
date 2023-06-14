@@ -1,6 +1,7 @@
-//! Service listening to trading book updates from multiple
-//! exchanges, and publishing snapshots for a consolidate trading book
-//! as Protobuf service.
+//! This crate provides a `gRPC` service attaching to multiple
+//! exchanges, listening to concurrent trading book updates,
+//! and publishing snapshots for a consolidate trading book.
+//! Example client implementation provided in `src/client.rs`.
 
 pub mod core;
 mod aggregator;

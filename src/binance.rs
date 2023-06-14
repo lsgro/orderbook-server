@@ -1,4 +1,4 @@
-//! Binance WebSocket exchange adapter for periodic trading book snapshots.
+//! Binance `WebSocket` exchange adapter for periodic trading book snapshots.
 
 use log::debug;
 use rust_decimal::prelude::*;

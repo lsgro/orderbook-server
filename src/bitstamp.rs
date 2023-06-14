@@ -1,4 +1,4 @@
-//! Bitstamp WebSocket exchange adapter for trading book snapshots.
+//! Bitstamp `WebSocket` exchange adapter for trading book snapshots.
 
 use log::debug;
 use rust_decimal::prelude::*;

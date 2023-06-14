@@ -12,10 +12,10 @@ use tonic::{transport::Server, Request, Response, Status};
 use orderbook_server::orderbook::{Summary, Empty, orderbook_aggregator_server::{OrderbookAggregator, OrderbookAggregatorServer}};
 
 use orderbook_server::cli::ArgParser;
-use orderbook_server::exchange::{BookUpdateSource, BookUpdateStream};
+use orderbook_server::exchange::{ExchangeAdapter, BookUpdateStream};
 use orderbook_server::service::BookSummaryService;
-use orderbook_server::binance::make_binance_book_update_source;
-use orderbook_server::bitstamp::make_bitstamp_book_update_source;
+use orderbook_server::binance::make_binance_exchange_adapter;
+use orderbook_server::bitstamp::make_bitstamp_echange_adapter;
 
 type ResponseStream = Pin<Box<dyn Stream<Item = Result<Summary, Status>> + Send>>;
 type SummaryResult = Result<Response<ResponseStream>, Status>;
@@ -27,7 +27,7 @@ const USAGE_MESSAGE: &str = "Usage: server <currency pair> [port]";
 /// Top level object representing a Profobuf RPC server.
 pub struct ProtobufOrderbookServer {
     /// The exchange adapters.
-    sources: Vec<BookUpdateSource>,
+    exchange_adapters: Vec<ExchangeAdapter>,
 }
 
 impl ProtobufOrderbookServer {
@@ -35,14 +35,14 @@ impl ProtobufOrderbookServer {
     ///
     /// # Arguments
     ///
-    /// * `sources` - A [vector](Vec) of [BookUpdateSource](BookUpdateSource) objects, one
+    /// * `exchange_adapters` - A [vector](Vec) of [ExchangeAdapter](ExchangeAdapter) objects, one
     /// for each exchange.
     ///
     /// # Returns
     ///
     /// A [ProtobufOrderbookServer](ProtobufOrderbookServer) object.
-    pub fn new(sources: Vec<BookUpdateSource>) -> Self {
-        Self { sources }
+    pub fn new(exchange_adapters: Vec<ExchangeAdapter>) -> Self {
+        Self { exchange_adapters }
     }
 
     /// Start the Protobuf RPC server on a port.
@@ -79,7 +79,7 @@ impl OrderbookAggregator for ProtobufOrderbookServer {
         info!("Client connected from: {:?}", req.remote_addr());
 
         let (tx, rx) = mpsc::channel(128);
-        let book_update_stream = BookUpdateStream::new(&self.sources).await;
+        let book_update_stream = BookUpdateStream::new(&self.exchange_adapters).await;
         let mut service: BookSummaryService = BookSummaryService::new(book_update_stream);
 
         tokio::spawn(async move {
@@ -105,12 +105,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut arg_parser = ArgParser::new(env::args(), USAGE_MESSAGE);
     let product = arg_parser.extract_currency_pair();
     let port = arg_parser.extract_port();
-    let binance_source = make_binance_book_update_source(&product).await;
-    let bitstamp_source = make_bitstamp_book_update_source(&product).await;
-    let sources: Vec<BookUpdateSource> = vec![
-        binance_source,
-        bitstamp_source,
+    let binance_adapter = make_binance_exchange_adapter(&product).await;
+    let bitstamp_adapter = make_bitstamp_echange_adapter(&product).await;
+    let exchange_adapters: Vec<ExchangeAdapter> = vec![
+        binance_adapter,
+        bitstamp_adapter,
     ];
-    let server = ProtobufOrderbookServer::new(sources);
+    let server = ProtobufOrderbookServer::new(exchange_adapters);
     server.serve(port).await
 }

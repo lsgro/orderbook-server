@@ -19,15 +19,15 @@ const SLEEP_BEFORE_RECONNECT_MS: u64 = 200;
 /// [BookUpdate](BookUpdate) object
 pub type BookUpdateReader = &'static (dyn Fn(&str) -> Option<BookUpdate> + Send + Sync);
 
-/// Type used to send commands from the [exchange stream source](BookUpdateSourceStream)
-/// to the internal loop of the [exchange source](BookUpdateSource).
+/// Type used to send commands from the [exchange stream](ExchangeAdapterStream)
+/// to the internal loop of the [exchange adapter](ExchangeAdapter).
 enum Command {
     /// Disconnect the exchange and exit the loop
     Close,
 }
 
 /// Contains all the information to connect to an exchange
-pub struct BookUpdateSource {
+pub struct ExchangeAdapter {
     /// Exchange code. Used for messages.
     exchange_code: &'static str,
     /// WebSocket URL.
@@ -38,8 +38,8 @@ pub struct BookUpdateSource {
     book_update_reader: BookUpdateReader,
 }
 
-impl BookUpdateSource {
-    /// Create a new [BookUpdateSource](BookUpdateSource) object.
+impl ExchangeAdapter {
+    /// Create a new [ExchangeAdapter](ExchangeAdapter) object.
     ///
     /// # Arguments
     ///
@@ -53,13 +53,13 @@ impl BookUpdateSource {
     ///
     /// # Returns
     ///
-    /// A [BookUpdateSource](BookUpdateSource) object.
+    /// A [ExchangeAdapter](ExchangeAdapter) object.
     pub async fn new(
             exchange_code: &'static str,
             ws_url: String,
             subscribe_message: String,
-            book_update_reader: BookUpdateReader) -> BookUpdateSource {
-        BookUpdateSource {
+            book_update_reader: BookUpdateReader) -> ExchangeAdapter {
+        ExchangeAdapter {
             exchange_code,
             ws_url,
             subscribe_message,
@@ -71,8 +71,8 @@ impl BookUpdateSource {
     ///
     /// # Returns
     ///
-    /// A [BookUpdateSourceStream](BookUpdateSourceStream) object.
-    pub async fn make_stream(&self) -> BookUpdateSourceStream {
+    /// A [ExchangeAdapterStream](ExchangeAdapterStream) object.
+    pub async fn make_stream(&self) -> ExchangeAdapterStream {
         let exchange_code = self.exchange_code;
         let ws_url = self.ws_url.clone();
         let subscribe_message = self.subscribe_message.clone();
@@ -81,7 +81,7 @@ impl BookUpdateSource {
         tokio::spawn(
             Self::process_stream(exchange_code, ws_url, subscribe_message, data_sender, command_receiver)
         );
-        BookUpdateSourceStream {
+        ExchangeAdapterStream {
             data_receiver,
             command_sender,
             book_update_reader: self.book_update_reader,
@@ -89,7 +89,7 @@ impl BookUpdateSource {
     }
 
     /// Internal function implementing a loop reading from the exchange WebSocket service, and
-    /// delivering the data received to the corresponding [BookUpdateSourceStream](BookUpdateSourceStream)
+    /// delivering the data received to the corresponding [ExchangeAdapterStream](ExchangeAdapterStream)
     /// object through a channel.
     /// It handles pings and it tries to reconnect in case of connection error.
     /// It receives [Command](Command) instances through a channel, to drive its behavior.
@@ -151,8 +151,8 @@ impl BookUpdateSource {
         }
     }
 
-    /// Internal function performing a two step operation to create a functioning WebSocket
-    /// source:
+    /// Internal function performing a two step operation to create a functioning
+    /// stream from an exchange WebSocket service:
     /// * Connecting to the WebSocket URL
     /// * Sending a message to subscribe to the relevant channel
     /// It panics in case of error.
@@ -172,18 +172,18 @@ impl BookUpdateSource {
     }
 }
 
-/// Structure representing a connected exchange source.
-pub struct BookUpdateSourceStream {
+/// Structure representing a connected exchange adapter.
+pub struct ExchangeAdapterStream {
     /// Channel receiver receiving string messages from the WebSocket.
     data_receiver: mpsc::Receiver<String>,
     /// Channel sender for commands to drive the behaviour of the processing loop in the
-    /// [BookUpdateSource](BookUpdateSource) object from which this structure is created.
+    /// [ExchangeAdapter](ExchangeAdapter) object from which this structure is created.
     command_sender: mpsc::Sender<Command>,
     /// Exchange-specific message parser function.
     book_update_reader: BookUpdateReader,
 }
 
-impl BookUpdateSourceStream {
+impl ExchangeAdapterStream {
     /// Disconnect from the exchange.
     pub async fn disconnect(&mut self) {
         match self.command_sender.send(Command::Close).await {
@@ -193,7 +193,7 @@ impl BookUpdateSourceStream {
     }
 }
 
-impl Stream for BookUpdateSourceStream {
+impl Stream for ExchangeAdapterStream {
     type Item = BookUpdate;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -216,7 +216,7 @@ impl Stream for BookUpdateSourceStream {
 /// in order to use from 1 to n streams, a recursive structure is used.
 pub enum BookUpdateStream {
     /// Single exchange connection
-    ExchangeStream(Pin<Box<BookUpdateSourceStream>>),
+    ExchangeStream(Pin<Box<ExchangeAdapterStream>>),
     /// [Select](Select) of two [BookUpdateStream](BookUpdateStream) objects.
     CompositeStream(Pin<Box<Select<BookUpdateStream, BookUpdateStream>>>)
 }
@@ -226,30 +226,30 @@ impl  BookUpdateStream {
     ///
     /// # Arguments
     ///
-    /// `exchange_sources` - A reference to a [Vector](Vec) of [BookUpdateSource](BookUpdateSource) objects.
+    /// `exchange_adapters` - A reference to a [Vector](Vec) of [ExchangeAdapter](ExchangeAdapter) objects.
     ///
     /// # Returns
     ///
     /// A [BookUpdateStream](BookUpdateStream) object.
-    pub async fn new(exchange_sources: &Vec<BookUpdateSource>) -> BookUpdateStream {
-        assert!(!exchange_sources.is_empty());
-        let mut connected_sources: Vec<BookUpdateSourceStream> = vec![];
-        for p in exchange_sources {
+    pub async fn new(exchange_adapters: &Vec<ExchangeAdapter>) -> BookUpdateStream {
+        assert!(!exchange_adapters.is_empty());
+        let mut adapter_streams: Vec<ExchangeAdapterStream> = vec![];
+        for p in exchange_adapters {
             let c = p.make_stream().await;
-            connected_sources.push(c);
+            adapter_streams.push(c);
         }
-        if connected_sources.len() > 1 {
-            let mut wrapped_sources = connected_sources.into_iter().map(
+        if adapter_streams.len() > 1 {
+            let mut wrapped_streams = adapter_streams.into_iter().map(
                 |p| Self::ExchangeStream(Box::pin(p))
             );
-            let w1 = wrapped_sources.next().unwrap();
-            let w2 = wrapped_sources.next().unwrap();
+            let w1 = wrapped_streams.next().unwrap();
+            let w2 = wrapped_streams.next().unwrap();
             let acc = Self::CompositeStream(Box::pin(select(w1, w2)));
-            wrapped_sources.fold(
+            wrapped_streams.fold(
                 acc,
                 |c, w| Self::CompositeStream(Box::pin(select(c, w))))
         } else {
-            Self::ExchangeStream(Box::pin(connected_sources.into_iter().next().unwrap()))
+            Self::ExchangeStream(Box::pin(adapter_streams.into_iter().next().unwrap()))
         }
     }
 

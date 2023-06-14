@@ -5,7 +5,7 @@ use rust_decimal::prelude::*;
 use serde::{Deserialize};
 
 use crate::core::*;
-use crate::exchange::BookUpdateSource;
+use crate::exchange::ExchangeAdapter;
 
 
 const BITSTAMP_CODE: &str = "bitstamp";
@@ -23,12 +23,12 @@ fn read_bitstamp_book_update(value: &str) -> Option<BookUpdate> {
     }
 }
 
-pub async fn make_bitstamp_book_update_source(product: &CurrencyPair) -> BookUpdateSource {
+pub async fn make_bitstamp_echange_adapter(product: &CurrencyPair) -> ExchangeAdapter {
     let product_code = product.to_string().to_lowercase();
     let channel_code = format!("order_book_{}", product_code);
     let ws_url = String::from(BITSTAMP_WS_URL);
     let subscribe_message = format!(r#"{{"event": "bts:subscribe","data":{{"channel":"{}"}}}}"#, channel_code);
-    BookUpdateSource::new(
+    ExchangeAdapter::new(
         BITSTAMP_CODE,
         ws_url,
         subscribe_message,

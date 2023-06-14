@@ -1,5 +1,5 @@
 //! Service listening to trading book updates from multiple
-//! sources, and publishing snapshots for a consolidate trading book
+//! exchanges, and publishing snapshots for a consolidate trading book
 //! as Protobuf service.
 
 pub mod core;

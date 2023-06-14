@@ -5,7 +5,7 @@ use rust_decimal::prelude::*;
 use serde::{Deserialize};
 
 use crate::core::*;
-use crate::exchange::BookUpdateSource;
+use crate::exchange::ExchangeAdapter;
 
 
 const BINANCE_CODE: &str = "binance";
@@ -23,12 +23,12 @@ fn read_binance_book_update(value: &str) -> Option<BookUpdate> {
     }
 }
 
-pub async fn make_binance_book_update_source(product: &CurrencyPair) -> BookUpdateSource {
+pub async fn make_binance_exchange_adapter(product: &CurrencyPair) -> ExchangeAdapter {
     let product_code = product.to_string().to_lowercase();
     let channel_code = format!("{}@depth{}@100ms", product_code, NUM_LEVELS);
     let ws_url = format!("{}/{}", BINANCE_WS_URL, channel_code);
     let subscribe_message = format!(r#"{{"method":"SUBSCRIBE","params":["{}"],"id":10}}"#, channel_code);
-    BookUpdateSource::new(
+    ExchangeAdapter::new(
         BINANCE_CODE,
         ws_url,
         subscribe_message,
